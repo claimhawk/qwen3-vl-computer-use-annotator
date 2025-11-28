@@ -60,7 +60,21 @@ export interface ElementPriorState {
   readonly visible?: boolean;        // For panel/dialog: is visible on screen
 }
 
-export type TaskAction = "click" | "type" | "wait";
+export type TaskAction =
+  | "key"           // Press a key or key combination
+  | "type"          // Type text
+  | "mouse_move"    // Move mouse to position
+  | "left_click"    // Single left click
+  | "left_click_drag" // Click and drag
+  | "right_click"   // Right click (context menu)
+  | "middle_click"  // Middle click
+  | "double_click"  // Double left click
+  | "triple_click"  // Triple left click (select line/paragraph)
+  | "scroll"        // Vertical scroll
+  | "hscroll"       // Horizontal scroll
+  | "wait"          // Wait for loading/dialog
+  | "terminate"     // End the task/session
+  | "answer";       // Provide an answer (for Q&A tasks)
 
 export interface Task {
   readonly id: string;

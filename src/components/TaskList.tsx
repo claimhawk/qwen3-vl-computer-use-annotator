@@ -12,12 +12,34 @@ interface Props {
   onDeleteTask: (id: string) => void;
 }
 
+// All available actions
+const TASK_ACTIONS: { value: TaskAction | "auto"; label: string; needsTarget: boolean; needsText: boolean }[] = [
+  { value: "auto", label: "Auto (from element)", needsTarget: true, needsText: false },
+  { value: "left_click", label: "Left Click", needsTarget: true, needsText: false },
+  { value: "double_click", label: "Double Click", needsTarget: true, needsText: false },
+  { value: "triple_click", label: "Triple Click", needsTarget: true, needsText: false },
+  { value: "right_click", label: "Right Click", needsTarget: true, needsText: false },
+  { value: "middle_click", label: "Middle Click", needsTarget: true, needsText: false },
+  { value: "left_click_drag", label: "Left Click Drag", needsTarget: true, needsText: false },
+  { value: "mouse_move", label: "Mouse Move", needsTarget: true, needsText: false },
+  { value: "type", label: "Type Text", needsTarget: true, needsText: true },
+  { value: "key", label: "Press Key", needsTarget: false, needsText: true },
+  { value: "scroll", label: "Scroll (vertical)", needsTarget: true, needsText: false },
+  { value: "hscroll", label: "Scroll (horizontal)", needsTarget: true, needsText: false },
+  { value: "wait", label: "Wait", needsTarget: false, needsText: false },
+  { value: "terminate", label: "Terminate", needsTarget: false, needsText: false },
+  { value: "answer", label: "Answer", needsTarget: false, needsText: true },
+];
+
 // Get action label - explicit action or inferred from element type
 function getActionLabel(task: Task, element: UIElement | undefined): string {
-  if (task.action === "wait") return "wait";
+  if (task.action) {
+    const actionDef = TASK_ACTIONS.find(a => a.value === task.action);
+    return actionDef?.label || task.action;
+  }
   if (!element) return "—";
   if (element.type === "textinput") return "click → type";
-  return "click";
+  return "left_click";
 }
 
 export default function TaskList({
@@ -33,8 +55,12 @@ export default function TaskList({
   const targetElement = selectedTask
     ? elements.find((el) => el.id === selectedTask.targetElementId)
     : null;
-  const isTextInput = targetElement?.type === "textinput";
-  const isWaitAction = selectedTask?.action === "wait";
+
+  // Get current action config
+  const currentAction = selectedTask?.action || "auto";
+  const actionConfig = TASK_ACTIONS.find(a => a.value === currentAction);
+  const needsTarget = actionConfig?.needsTarget ?? true;
+  const needsText = actionConfig?.needsText || (currentAction === "auto" && targetElement?.type === "textinput");
 
   // Panel types for prior states visibility
   const panelTypes = ["panel", "dialog", "toolbar", "menubar"];
@@ -97,19 +123,42 @@ export default function TaskList({
                 value={selectedTask.action || "auto"}
                 onChange={(e) => {
                   const action = e.target.value === "auto" ? undefined : e.target.value as TaskAction;
+                  const newActionConfig = TASK_ACTIONS.find(a => a.value === (action || "auto"));
                   onUpdateTask(selectedTask.id, {
                     action,
-                    targetElementId: action === "wait" ? undefined : selectedTask.targetElementId,
+                    targetElementId: newActionConfig?.needsTarget ? selectedTask.targetElementId : undefined,
+                    text: newActionConfig?.needsText ? selectedTask.text : undefined,
                   });
                 }}
                 className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
               >
-                <option value="auto">Auto (from element)</option>
-                <option value="wait">Wait (for loading/dialog)</option>
+                <optgroup label="Mouse Actions">
+                  <option value="auto">Auto (from element)</option>
+                  <option value="left_click">Left Click</option>
+                  <option value="double_click">Double Click</option>
+                  <option value="triple_click">Triple Click</option>
+                  <option value="right_click">Right Click</option>
+                  <option value="middle_click">Middle Click</option>
+                  <option value="left_click_drag">Left Click Drag</option>
+                  <option value="mouse_move">Mouse Move</option>
+                </optgroup>
+                <optgroup label="Keyboard">
+                  <option value="type">Type Text</option>
+                  <option value="key">Press Key</option>
+                </optgroup>
+                <optgroup label="Scroll">
+                  <option value="scroll">Scroll (vertical)</option>
+                  <option value="hscroll">Scroll (horizontal)</option>
+                </optgroup>
+                <optgroup label="Control">
+                  <option value="wait">Wait</option>
+                  <option value="terminate">Terminate</option>
+                  <option value="answer">Answer</option>
+                </optgroup>
               </select>
             </div>
 
-            {!isWaitAction && (
+            {needsTarget && (
               <div>
                 <label className="text-xs text-zinc-400">Target Element</label>
                 <select
@@ -117,7 +166,6 @@ export default function TaskList({
                   onChange={(e) =>
                     onUpdateTask(selectedTask.id, {
                       targetElementId: e.target.value || undefined,
-                      text: undefined, // Clear text when target changes
                     })
                   }
                   className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
@@ -129,11 +177,6 @@ export default function TaskList({
                     </option>
                   ))}
                 </select>
-                {targetElement && (
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Action: <span className="text-zinc-300">{getActionLabel(selectedTask, targetElement)}</span>
-                  </p>
-                )}
               </div>
             )}
 
@@ -150,22 +193,30 @@ export default function TaskList({
               />
             </div>
 
-            {/* Text to type - only for textinput elements */}
-            {isTextInput && (
+            {/* Text/Key input - for type, key, answer actions */}
+            {needsText && (
               <div>
-                <label className="text-xs text-zinc-400">Text to Type</label>
+                <label className="text-xs text-zinc-400">
+                  {currentAction === "key" ? "Key(s)" : currentAction === "answer" ? "Answer" : "Text to Type"}
+                </label>
                 <input
                   type="text"
                   value={selectedTask.text ?? ""}
                   onChange={(e) =>
                     onUpdateTask(selectedTask.id, { text: e.target.value })
                   }
-                  placeholder="e.g., PASSWORD"
+                  placeholder={
+                    currentAction === "key" ? "e.g., ctrl+c, Return, Escape" :
+                    currentAction === "answer" ? "e.g., The answer is 42" :
+                    "e.g., hello@example.com"
+                  }
                   className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
                 />
-                <p className="text-xs text-zinc-500 mt-1">
-                  Generates: click + type
-                </p>
+                {currentAction === "key" && (
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Modifiers: ctrl, alt, shift, cmd/meta
+                  </p>
+                )}
               </div>
             )}
 
