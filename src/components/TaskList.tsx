@@ -193,11 +193,11 @@ export default function TaskList({
               />
             </div>
 
-            {/* Text/Key input - for type, key, answer actions */}
-            {needsText && (
+            {/* Text input - for type/answer actions */}
+            {(currentAction === "type" || currentAction === "answer" || (currentAction === "auto" && targetElement?.type === "textinput")) && (
               <div>
                 <label className="text-xs text-zinc-400">
-                  {currentAction === "key" ? "Key(s)" : currentAction === "answer" ? "Answer" : "Text to Type"}
+                  {currentAction === "answer" ? "Answer" : "Text to Type"}
                 </label>
                 <input
                   type="text"
@@ -205,16 +205,114 @@ export default function TaskList({
                   onChange={(e) =>
                     onUpdateTask(selectedTask.id, { text: e.target.value })
                   }
-                  placeholder={
-                    currentAction === "key" ? "e.g., ctrl+c, Return, Escape" :
-                    currentAction === "answer" ? "e.g., The answer is 42" :
-                    "e.g., hello@example.com"
-                  }
+                  placeholder={currentAction === "answer" ? "e.g., The answer is 42" : "e.g., hello@example.com"}
                   className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
                 />
-                {currentAction === "key" && (
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Modifiers: ctrl, alt, shift, cmd/meta
+              </div>
+            )}
+
+            {/* Keys input - for key action */}
+            {currentAction === "key" && (
+              <div>
+                <label className="text-xs text-zinc-400">Keys (comma separated)</label>
+                <input
+                  type="text"
+                  value={(selectedTask.keys ?? []).join(", ")}
+                  onChange={(e) => {
+                    const keys = e.target.value.split(",").map(k => k.trim()).filter(Boolean);
+                    onUpdateTask(selectedTask.id, { keys });
+                  }}
+                  placeholder="e.g., ctrl, c or Return or Escape"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+                />
+                <p className="text-xs text-zinc-500 mt-1">
+                  Common: Return, Escape, Tab, Backspace, ctrl, alt, shift, cmd
+                </p>
+              </div>
+            )}
+
+            {/* Pixels input - for scroll/hscroll */}
+            {(currentAction === "scroll" || currentAction === "hscroll") && (
+              <div>
+                <label className="text-xs text-zinc-400">
+                  Pixels ({currentAction === "scroll" ? "+down/-up" : "+right/-left"})
+                </label>
+                <input
+                  type="number"
+                  value={selectedTask.pixels ?? ""}
+                  onChange={(e) =>
+                    onUpdateTask(selectedTask.id, { pixels: parseInt(e.target.value) || undefined })
+                  }
+                  placeholder="e.g., 100 or -100"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+                />
+              </div>
+            )}
+
+            {/* Wait time - for wait action */}
+            {currentAction === "wait" && (
+              <div>
+                <label className="text-xs text-zinc-400">Wait Time (seconds)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={selectedTask.waitTime ?? ""}
+                  onChange={(e) =>
+                    onUpdateTask(selectedTask.id, { waitTime: parseFloat(e.target.value) || undefined })
+                  }
+                  placeholder="e.g., 2.5"
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+                />
+              </div>
+            )}
+
+            {/* Status - for terminate action */}
+            {currentAction === "terminate" && (
+              <div>
+                <label className="text-xs text-zinc-400">Status</label>
+                <select
+                  value={selectedTask.status ?? "success"}
+                  onChange={(e) =>
+                    onUpdateTask(selectedTask.id, { status: e.target.value as "success" | "failure" })
+                  }
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+                >
+                  <option value="success">Success</option>
+                  <option value="failure">Failure</option>
+                </select>
+              </div>
+            )}
+
+            {/* Drag coordinates - for left_click_drag */}
+            {currentAction === "left_click_drag" && (
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs text-zinc-400">End Element (drag to)</label>
+                  <select
+                    value={selectedTask.endCoordinate ? "" : (selectedTask as any).endElementId || ""}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const el = elements.find(el => el.id === e.target.value);
+                        if (el) {
+                          const endX = Math.round(el.bbox.x + el.bbox.width / 2);
+                          const endY = Math.round(el.bbox.y + el.bbox.height / 2);
+                          onUpdateTask(selectedTask.id, { endCoordinate: [endX, endY] });
+                        }
+                      }
+                    }}
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+                  >
+                    <option value="">-- Select end element --</option>
+                    {elements.map((el) => (
+                      <option key={el.id} value={el.id}>
+                        {el.text || el.type} ({el.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedTask.endCoordinate && (
+                  <p className="text-xs text-zinc-500">
+                    End: [{selectedTask.endCoordinate[0]}, {selectedTask.endCoordinate[1]}]
                   </p>
                 )}
               </div>

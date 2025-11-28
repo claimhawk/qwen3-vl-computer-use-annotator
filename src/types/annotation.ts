@@ -79,9 +79,16 @@ export type TaskAction =
 export interface Task {
   readonly id: string;
   readonly prompt: string;
-  readonly targetElementId?: string;      // For click/type - action inferred from element type
+  readonly targetElementId?: string;      // For coordinate-based actions - gets center of element bbox
   readonly action?: TaskAction;           // Override action (e.g., "wait" for loading screens)
-  readonly text?: string;                 // For textinput: text to type (generates click + type)
+  readonly text?: string;                 // For type/answer actions
+  readonly keys?: readonly string[];      // For key action: array of key names
+  readonly coordinate?: readonly [number, number];  // For mouse actions: [x, y]
+  readonly startCoordinate?: readonly [number, number]; // For left_click_drag: start [x, y]
+  readonly endCoordinate?: readonly [number, number];   // For left_click_drag: end [x, y]
+  readonly pixels?: number;               // For scroll/hscroll: positive=down/right, negative=up/left
+  readonly waitTime?: number;             // For wait: seconds
+  readonly status?: "success" | "failure"; // For terminate
   readonly priorStates?: readonly ElementPriorState[];
 }
 
