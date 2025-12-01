@@ -14,6 +14,45 @@ import {
   getElementColor,
 } from "@/types/annotation";
 
+// Helper to get grid cell positions based on custom or uniform sizes
+function getGridPositions(el: UIElement) {
+  const rows = el.rows || 1;
+  const cols = el.cols || 1;
+  const { x, y, width, height } = el.bbox;
+
+  // Column positions (x coordinates of vertical dividers)
+  const colPositions: number[] = [];
+  if (el.colWidths && el.colWidths.length === cols) {
+    let cumX = x;
+    for (let c = 0; c < cols - 1; c++) {
+      cumX += el.colWidths[c] * width;
+      colPositions.push(cumX);
+    }
+  } else {
+    const cellWidth = width / cols;
+    for (let c = 1; c < cols; c++) {
+      colPositions.push(x + c * cellWidth);
+    }
+  }
+
+  // Row positions (y coordinates of horizontal dividers)
+  const rowPositions: number[] = [];
+  if (el.rowHeights && el.rowHeights.length === rows) {
+    let cumY = y;
+    for (let r = 0; r < rows - 1; r++) {
+      cumY += el.rowHeights[r] * height;
+      rowPositions.push(cumY);
+    }
+  } else {
+    const cellHeight = height / rows;
+    for (let r = 1; r < rows; r++) {
+      rowPositions.push(y + r * cellHeight);
+    }
+  }
+
+  return { colPositions, rowPositions };
+}
+
 export default function Home() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState<[number, number] | null>(null);
@@ -83,9 +122,9 @@ export default function Home() {
           const annotationText = await annotationFile.async("string");
           const annotation: Annotation = JSON.parse(annotationText);
           setScreenName(annotation.screenName);
-          setElements(annotation.elements);
-          setImageSize(annotation.imageSize);
-          setTasks(annotation.tasks || []);
+          setElements([...annotation.elements]);
+          setImageSize([...annotation.imageSize]);
+          setTasks([...(annotation.tasks || [])]);
           setSelectedTaskId(null);
           if (annotation.imagePath) {
             setImagePath(annotation.imagePath);
@@ -291,7 +330,7 @@ export default function Home() {
     ctx.drawImage(img, 0, 0);
 
     // Only mask elements that have mask enabled (defaults to true for maskable types)
-    const maskableTypes = ["textinput", "dropdown", "listbox", "grid", "icon", "panel", "toolbar", "menubar", "text"];
+    const maskableTypes = ["textinput", "dropdown", "listbox", "grid", "icon", "panel", "toolbar", "menubar", "text", "mask"];
 
     // Fill annotated regions with background color
     elements.forEach((el) => {
@@ -311,20 +350,19 @@ export default function Home() {
         const rows = el.rows || 1;
         const cols = el.cols || 1;
         if (rows > 1 || cols > 1) {
+          const { colPositions, rowPositions } = getGridPositions(el);
           ctx.strokeStyle = "rgba(128, 128, 128, 0.4)";
           ctx.lineWidth = 1;
-          const cellH = el.bbox.height / rows;
-          const cellW = el.bbox.width / cols;
-          for (let r = 1; r < rows; r++) {
+          for (const rowY of rowPositions) {
             ctx.beginPath();
-            ctx.moveTo(el.bbox.x, el.bbox.y + r * cellH);
-            ctx.lineTo(el.bbox.x + el.bbox.width, el.bbox.y + r * cellH);
+            ctx.moveTo(el.bbox.x, rowY);
+            ctx.lineTo(el.bbox.x + el.bbox.width, rowY);
             ctx.stroke();
           }
-          for (let c = 1; c < cols; c++) {
+          for (const colX of colPositions) {
             ctx.beginPath();
-            ctx.moveTo(el.bbox.x + c * cellW, el.bbox.y);
-            ctx.lineTo(el.bbox.x + c * cellW, el.bbox.y + el.bbox.height);
+            ctx.moveTo(colX, el.bbox.y);
+            ctx.lineTo(colX, el.bbox.y + el.bbox.height);
             ctx.stroke();
           }
         }
@@ -363,20 +401,19 @@ export default function Home() {
       const rows = el.rows || 1;
       const cols = el.cols || 1;
       if (rows > 1 || cols > 1) {
+        const { colPositions, rowPositions } = getGridPositions(el);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
-        const cellH = el.bbox.height / rows;
-        const cellW = el.bbox.width / cols;
-        for (let r = 1; r < rows; r++) {
+        for (const rowY of rowPositions) {
           ctx.beginPath();
-          ctx.moveTo(el.bbox.x, el.bbox.y + r * cellH);
-          ctx.lineTo(el.bbox.x + el.bbox.width, el.bbox.y + r * cellH);
+          ctx.moveTo(el.bbox.x, rowY);
+          ctx.lineTo(el.bbox.x + el.bbox.width, rowY);
           ctx.stroke();
         }
-        for (let c = 1; c < cols; c++) {
+        for (const colX of colPositions) {
           ctx.beginPath();
-          ctx.moveTo(el.bbox.x + c * cellW, el.bbox.y);
-          ctx.lineTo(el.bbox.x + c * cellW, el.bbox.y + el.bbox.height);
+          ctx.moveTo(colX, el.bbox.y);
+          ctx.lineTo(colX, el.bbox.y + el.bbox.height);
           ctx.stroke();
         }
       }
@@ -397,22 +434,27 @@ export default function Home() {
         for (const iconEl of iconsToExport) {
           const rows = iconEl.rows || 1;
           const cols = iconEl.cols || 1;
-          const cellW = iconEl.bbox.width / cols;
-          const cellH = iconEl.bbox.height / rows;
           const baseName = iconEl.text || iconEl.id;
 
           // If grid (rows/cols > 1), slice into individual icons
           if (rows > 1 || cols > 1) {
+            const { colPositions, rowPositions } = getGridPositions(iconEl);
+            // Build cell bounds arrays
+            const colBounds = [iconEl.bbox.x, ...colPositions, iconEl.bbox.x + iconEl.bbox.width];
+            const rowBounds = [iconEl.bbox.y, ...rowPositions, iconEl.bbox.y + iconEl.bbox.height];
+
             for (let r = 0; r < rows; r++) {
               for (let c = 0; c < cols; c++) {
+                const srcX = colBounds[c];
+                const srcY = rowBounds[r];
+                const cellW = colBounds[c + 1] - colBounds[c];
+                const cellH = rowBounds[r + 1] - rowBounds[r];
+
                 const iconCanvas = document.createElement("canvas");
                 iconCanvas.width = Math.round(cellW);
                 iconCanvas.height = Math.round(cellH);
                 const iconCtx = iconCanvas.getContext("2d");
                 if (!iconCtx) continue;
-
-                const srcX = iconEl.bbox.x + c * cellW;
-                const srcY = iconEl.bbox.y + r * cellH;
 
                 iconCtx.drawImage(
                   img,
@@ -479,9 +521,9 @@ export default function Home() {
           const annotationText = await annotationFile.async("string");
           const annotation: Annotation = JSON.parse(annotationText);
           setScreenName(annotation.screenName);
-          setElements(annotation.elements);
-          setImageSize(annotation.imageSize);
-          setTasks(annotation.tasks || []);
+          setElements([...annotation.elements]);
+          setImageSize([...annotation.imageSize]);
+          setTasks([...(annotation.tasks || [])]);
           setSelectedTaskId(null);
           if (annotation.imagePath) {
             setImagePath(annotation.imagePath);
@@ -506,9 +548,9 @@ export default function Home() {
         try {
           const annotation: Annotation = JSON.parse(event.target?.result as string);
           setScreenName(annotation.screenName);
-          setElements(annotation.elements);
-          setImageSize(annotation.imageSize);
-          setTasks(annotation.tasks || []);
+          setElements([...annotation.elements]);
+          setImageSize([...annotation.imageSize]);
+          setTasks([...(annotation.tasks || [])]);
           setSelectedTaskId(null);
           if (annotation.imagePath) {
             setImagePath(annotation.imagePath);

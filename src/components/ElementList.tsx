@@ -30,7 +30,7 @@ export default function ElementList({
   const isIcon = selectedElement?.type === "icon";
   const isPanel = selectedElement?.type === "panel" || selectedElement?.type === "toolbar" || selectedElement?.type === "menubar";
   const isText = selectedElement?.type === "text";
-  const isMaskable = selectedElement && ["textinput", "dropdown", "listbox", "grid", "icon", "panel", "toolbar", "menubar", "text"].includes(selectedElement.type);
+  const isMaskable = selectedElement && ["textinput", "dropdown", "listbox", "grid", "icon", "panel", "toolbar", "menubar", "text", "mask"].includes(selectedElement.type);
 
   // Get panel elements for parent selection
   const panelElements = elements.filter((el) => el.type === "panel" || el.type === "toolbar" || el.type === "menubar");

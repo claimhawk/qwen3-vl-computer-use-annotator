@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "scripts": {
-    "dev": "next dev",
+    "dev": "lsof -ti:3000 | xargs kill -9 2>/dev/null; rm -rf .next/dev/lock 2>/dev/null; next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

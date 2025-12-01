@@ -15,7 +15,8 @@ export type ElementType =
   | "titlebar"
   | "dialog"
   | "panel"
-  | "text";
+  | "text"
+  | "mask";
 
 export interface BBox {
   readonly x: number;
@@ -36,6 +37,8 @@ export interface UIElement {
   readonly parentId?: string;
   readonly rows?: number;
   readonly cols?: number;
+  readonly rowHeights?: readonly number[];  // Custom row heights as fractions (sum to 1)
+  readonly colWidths?: readonly number[];   // Custom column widths as fractions (sum to 1)
   readonly mask?: boolean;
   readonly maskColor?: string;
   readonly layout?: PanelLayout;  // For panels: how child icons are arranged
@@ -125,6 +128,7 @@ export const ELEMENT_TYPES: readonly { readonly value: ElementType; readonly lab
   { value: "scrollbar", label: "Scrollbar", color: "#6b7280" },
   { value: "titlebar", label: "Title Bar", color: "#dc2626" },
   { value: "text", label: "Text", color: "#84cc16" },
+  { value: "mask", label: "Mask", color: "#71717a" },
 ];
 
 export function getElementColor(type: ElementType): string {

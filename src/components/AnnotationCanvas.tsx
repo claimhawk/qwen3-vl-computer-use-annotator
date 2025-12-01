@@ -47,12 +47,123 @@ export default function AnnotationCanvas({
   const [resizeEdge, setResizeEdge] = useState<string | null>(null);
   const [resizeStart, setResizeStart] = useState<{ x: number; y: number; bbox: BBox } | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [draggingDivider, setDraggingDivider] = useState<{
+    elementId: string;
+    type: "row" | "col";
+    index: number;
+    startPos: number;
+  } | null>(null);
+  const [hoverDivider, setHoverDivider] = useState<{
+    elementId: string;
+    type: "row" | "col";
+    index: number;
+  } | null>(null);
 
   // Edge detection threshold in pixels
   const EDGE_THRESHOLD = 8;
+  const DIVIDER_THRESHOLD = 6;
 
-  // Effective scale with zoom
+  // Effective scale with zoom (defined early for use in callbacks)
   const scale = baseScale * zoomLevel;
+
+  // Helper to get grid cell positions based on custom or uniform sizes
+  const getGridPositions = useCallback((el: UIElement) => {
+    const rows = el.rows || 1;
+    const cols = el.cols || 1;
+    const { x, y, width, height } = el.bbox;
+
+    // Column positions (x coordinates of vertical dividers)
+    const colPositions: number[] = [];
+    if (el.colWidths && el.colWidths.length === cols) {
+      let cumX = x;
+      for (let c = 0; c < cols - 1; c++) {
+        cumX += el.colWidths[c] * width;
+        colPositions.push(cumX);
+      }
+    } else {
+      const cellWidth = width / cols;
+      for (let c = 1; c < cols; c++) {
+        colPositions.push(x + c * cellWidth);
+      }
+    }
+
+    // Row positions (y coordinates of horizontal dividers)
+    const rowPositions: number[] = [];
+    if (el.rowHeights && el.rowHeights.length === rows) {
+      let cumY = y;
+      for (let r = 0; r < rows - 1; r++) {
+        cumY += el.rowHeights[r] * height;
+        rowPositions.push(cumY);
+      }
+    } else {
+      const cellHeight = height / rows;
+      for (let r = 1; r < rows; r++) {
+        rowPositions.push(y + r * cellHeight);
+      }
+    }
+
+    return { colPositions, rowPositions };
+  }, []);
+
+  // Detect if mouse is near a grid divider
+  const detectDivider = useCallback(
+    (pos: { x: number; y: number }): { elementId: string; type: "row" | "col"; index: number } | null => {
+      const threshold = DIVIDER_THRESHOLD / scale;
+
+      for (const el of elements) {
+        const rows = el.rows || 1;
+        const cols = el.cols || 1;
+        if (rows <= 1 && cols <= 1) continue;
+
+        const { x, y, width, height } = el.bbox;
+        // Check if point is within element bounds
+        if (pos.x < x - threshold || pos.x > x + width + threshold) continue;
+        if (pos.y < y - threshold || pos.y > y + height + threshold) continue;
+
+        const { colPositions, rowPositions } = getGridPositions(el);
+
+        // Check column dividers (vertical lines)
+        for (let c = 0; c < colPositions.length; c++) {
+          if (Math.abs(pos.x - colPositions[c]) < threshold && pos.y >= y && pos.y <= y + height) {
+            return { elementId: el.id, type: "col", index: c };
+          }
+        }
+
+        // Check row dividers (horizontal lines)
+        for (let r = 0; r < rowPositions.length; r++) {
+          if (Math.abs(pos.y - rowPositions[r]) < threshold && pos.x >= x && pos.x <= x + width) {
+            return { elementId: el.id, type: "row", index: r };
+          }
+        }
+      }
+
+      return null;
+    },
+    [elements, scale, getGridPositions]
+  );
+
+  // Handle Space key for pan mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        e.preventDefault();
+        setSpaceHeld(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        setSpaceHeld(false);
+        setIsPanning(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
 
   // Calculate base scale to fit image in container
   useEffect(() => {
@@ -146,35 +257,45 @@ export default function AnnotationCanvas({
         const rows = el.rows || 1;
         const cols = el.cols || 1;
         if (rows > 1 || cols > 1) {
+          const { colPositions, rowPositions } = getGridPositions(el);
+
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.setLineDash([]);
 
-          const cellHeight = h / rows;
-          const cellWidth = w / cols;
-
           // Draw horizontal division lines
-          for (let r = 1; r < rows; r++) {
+          for (let r = 0; r < rowPositions.length; r++) {
+            const lineY = offset.y + rowPositions[r] * scale;
+            const isHovered = hoverDivider?.elementId === el.id && hoverDivider?.type === "row" && hoverDivider?.index === r;
+            ctx.strokeStyle = isHovered ? "#ffffff" : color;
+            ctx.lineWidth = isHovered ? 3 : 2;
             ctx.beginPath();
-            ctx.moveTo(x, y + r * cellHeight);
-            ctx.lineTo(x + w, y + r * cellHeight);
+            ctx.moveTo(x, lineY);
+            ctx.lineTo(x + w, lineY);
             ctx.stroke();
           }
 
           // Draw vertical division lines
-          for (let c = 1; c < cols; c++) {
+          for (let c = 0; c < colPositions.length; c++) {
+            const lineX = offset.x + colPositions[c] * scale;
+            const isHovered = hoverDivider?.elementId === el.id && hoverDivider?.type === "col" && hoverDivider?.index === c;
+            ctx.strokeStyle = isHovered ? "#ffffff" : color;
+            ctx.lineWidth = isHovered ? 3 : 2;
             ctx.beginPath();
-            ctx.moveTo(x + c * cellWidth, y);
-            ctx.lineTo(x + c * cellWidth, y + h);
+            ctx.moveTo(lineX, y);
+            ctx.lineTo(lineX, y + h);
             ctx.stroke();
           }
 
           // Draw cell numbers with background for visibility
           ctx.font = "bold 11px sans-serif";
+          // Calculate cell bounds from positions
+          const colBounds = [el.bbox.x, ...colPositions, el.bbox.x + el.bbox.width];
+          const rowBounds = [el.bbox.y, ...rowPositions, el.bbox.y + el.bbox.height];
           for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-              const cellX = x + c * cellWidth;
-              const cellY = y + r * cellHeight;
+              const cellX = offset.x + colBounds[c] * scale;
+              const cellY = offset.y + rowBounds[r] * scale;
               const cellNum = String(r * cols + c + 1);
               // Dark background pill
               const textWidth = ctx.measureText(cellNum).width;
@@ -225,7 +346,7 @@ export default function AnnotationCanvas({
       }
     };
     img.src = imageUrl;
-  }, [imageUrl, imageSize, elements, selectedElementId, currentRect, scale, offset, currentType, drawMode, gridRows, gridCols, isColorSampling]);
+  }, [imageUrl, imageSize, elements, selectedElementId, currentRect, scale, offset, currentType, drawMode, gridRows, gridCols, isColorSampling, hoverDivider, getGridPositions]);
 
   // Convert screen coords to image coords
   const screenToImage = useCallback(
@@ -296,8 +417,8 @@ export default function AnnotationCanvas({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!imageUrl) return;
 
-    // Middle mouse button or space key held = start panning
-    if (e.button === 1 || e.altKey) {
+    // Middle mouse button, Alt key, or Space key held = start panning
+    if (e.button === 1 || e.altKey || spaceHeld) {
       e.preventDefault();
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
@@ -305,6 +426,16 @@ export default function AnnotationCanvas({
     }
 
     const pos = screenToImage(e.clientX, e.clientY);
+
+    // Check for grid divider drag
+    const divider = detectDivider(pos);
+    if (divider) {
+      setDraggingDivider({
+        ...divider,
+        startPos: divider.type === "col" ? pos.x : pos.y,
+      });
+      return;
+    }
 
     // Check for edge resize on selected element
     const edge = detectEdge(pos);
@@ -362,8 +493,8 @@ export default function AnnotationCanvas({
       }
     });
 
-    if (clickedElement) {
-      onSelectElement(clickedElement.id);
+    if (clickedElement !== null) {
+      onSelectElement((clickedElement as UIElement).id);
     } else {
       onSelectElement(null);
     }
@@ -380,6 +511,95 @@ export default function AnnotationCanvas({
     }
 
     const pos = screenToImage(e.clientX, e.clientY);
+
+    // Handle divider dragging
+    if (draggingDivider) {
+      const el = elements.find((el) => el.id === draggingDivider.elementId);
+      if (!el) return;
+
+      const rows = el.rows || 1;
+      const cols = el.cols || 1;
+      const { x, y, width, height } = el.bbox;
+
+      if (draggingDivider.type === "col") {
+        // Dragging a vertical divider (column boundary)
+        const currentWidths = el.colWidths && el.colWidths.length === cols
+          ? [...el.colWidths]
+          : Array(cols).fill(1 / cols);
+
+        // Calculate new position as fraction
+        const newPosX = Math.max(x + 10, Math.min(pos.x, x + width - 10));
+        const newFraction = (newPosX - x) / width;
+
+        // Get cumulative widths up to this divider
+        let cumBefore = 0;
+        for (let i = 0; i < draggingDivider.index; i++) {
+          cumBefore += currentWidths[i];
+        }
+
+        // The divider is between index and index+1
+        // Adjust so divider position = cumBefore + currentWidths[index]
+        const minWidth = 10 / width; // minimum 10px
+        const leftCol = draggingDivider.index;
+        const rightCol = draggingDivider.index + 1;
+
+        // Calculate what the left column width should be
+        const newLeftWidth = Math.max(minWidth, newFraction - cumBefore);
+        // Right column takes the difference
+        const oldCombined = currentWidths[leftCol] + currentWidths[rightCol];
+        const newRightWidth = Math.max(minWidth, oldCombined - newLeftWidth);
+
+        currentWidths[leftCol] = newLeftWidth;
+        currentWidths[rightCol] = newRightWidth;
+
+        // Normalize to ensure sum = 1
+        const sum = currentWidths.reduce((a, b) => a + b, 0);
+        const normalizedWidths = currentWidths.map(w => w / sum);
+
+        onElementsChange(
+          elements.map((el) =>
+            el.id === draggingDivider.elementId ? { ...el, colWidths: normalizedWidths } : el
+          )
+        );
+      } else {
+        // Dragging a horizontal divider (row boundary)
+        const currentHeights = el.rowHeights && el.rowHeights.length === rows
+          ? [...el.rowHeights]
+          : Array(rows).fill(1 / rows);
+
+        // Calculate new position as fraction
+        const newPosY = Math.max(y + 10, Math.min(pos.y, y + height - 10));
+        const newFraction = (newPosY - y) / height;
+
+        // Get cumulative heights up to this divider
+        let cumBefore = 0;
+        for (let i = 0; i < draggingDivider.index; i++) {
+          cumBefore += currentHeights[i];
+        }
+
+        const minHeight = 10 / height;
+        const topRow = draggingDivider.index;
+        const bottomRow = draggingDivider.index + 1;
+
+        const newTopHeight = Math.max(minHeight, newFraction - cumBefore);
+        const oldCombined = currentHeights[topRow] + currentHeights[bottomRow];
+        const newBottomHeight = Math.max(minHeight, oldCombined - newTopHeight);
+
+        currentHeights[topRow] = newTopHeight;
+        currentHeights[bottomRow] = newBottomHeight;
+
+        // Normalize
+        const sum = currentHeights.reduce((a, b) => a + b, 0);
+        const normalizedHeights = currentHeights.map(h => h / sum);
+
+        onElementsChange(
+          elements.map((el) =>
+            el.id === draggingDivider.elementId ? { ...el, rowHeights: normalizedHeights } : el
+          )
+        );
+      }
+      return;
+    }
 
     // Handle resizing
     if (resizeEdge && resizeStart && selectedElementId && imageSize) {
@@ -431,10 +651,19 @@ export default function AnnotationCanvas({
       return;
     }
 
-    // Update hover edge for cursor
+    // Update hover edge/divider for cursor
     if (!isDrawing && !isColorSampling) {
-      const edge = detectEdge(pos);
-      setHoverEdge(edge);
+      // Check for divider hover first
+      const divider = detectDivider(pos);
+      setHoverDivider(divider);
+
+      // Then check for edge hover (only if not hovering a divider)
+      if (!divider) {
+        const edge = detectEdge(pos);
+        setHoverEdge(edge);
+      } else {
+        setHoverEdge(null);
+      }
     }
 
     if (!isDrawing || !startPoint || !imageSize) return;
@@ -457,6 +686,12 @@ export default function AnnotationCanvas({
     // Stop panning
     if (isPanning) {
       setIsPanning(false);
+      return;
+    }
+
+    // Stop divider dragging
+    if (draggingDivider) {
+      setDraggingDivider(null);
       return;
     }
 
@@ -548,22 +783,27 @@ export default function AnnotationCanvas({
   };
 
   // Determine cursor style
-  const cursorStyle = isPanning
-    ? "cursor-grabbing"
-    : resizeEdge
-    ? `cursor-${getCursorForEdge(resizeEdge)}`
-    : isColorSampling
-    ? "cursor-copy"
-    : hoverEdge
-    ? `cursor-${getCursorForEdge(hoverEdge)}`
-    : "cursor-crosshair";
+  const getCursor = (): string => {
+    if (isPanning) return "grabbing";
+    if (spaceHeld) return "grab";
+    if (draggingDivider) {
+      return draggingDivider.type === "col" ? "col-resize" : "row-resize";
+    }
+    if (hoverDivider) {
+      return hoverDivider.type === "col" ? "col-resize" : "row-resize";
+    }
+    if (resizeEdge) return getCursorForEdge(resizeEdge);
+    if (isColorSampling) return "copy";
+    if (hoverEdge) return getCursorForEdge(hoverEdge);
+    return "crosshair";
+  };
 
   return (
     <div ref={containerRef} className="w-full h-full relative overflow-hidden">
       <canvas
         ref={canvasRef}
         className={`absolute inset-0`}
-        style={{ cursor: isPanning ? "grabbing" : resizeEdge ? getCursorForEdge(resizeEdge) : isColorSampling ? "copy" : hoverEdge ? getCursorForEdge(hoverEdge) : "crosshair" }}
+        style={{ cursor: getCursor() }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -575,6 +815,8 @@ export default function AnnotationCanvas({
           setResizeEdge(null);
           setResizeStart(null);
           setHoverEdge(null);
+          setDraggingDivider(null);
+          setHoverDivider(null);
         }}
       />
       {!imageUrl && (
