@@ -11,6 +11,7 @@ interface Props {
   onDeleteElement: (id: string) => void;
   onCropToElement: (id: string) => void;
   onStartColorSampling: () => void;
+  onUpdateGridTasks?: (element: UIElement) => void;
 }
 
 export default function ElementList({
@@ -21,6 +22,7 @@ export default function ElementList({
   onDeleteElement,
   onCropToElement,
   onStartColorSampling,
+  onUpdateGridTasks,
 }: Props) {
   const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
   const selectedElement = elements.find((el) => el.id === selectedElementId);
@@ -487,6 +489,79 @@ export default function ElementList({
                           }
                         }}
                         className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Grid task generation options */}
+            {selectedElement.type === "grid" && (
+              <div className="mt-2 pt-2 border-t border-zinc-600">
+                <label className="text-xs text-zinc-400 block mb-2">Grid Options</label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedElement.ocr ?? false}
+                      onChange={(e) =>
+                        onUpdateElement(selectedElement.id, { ocr: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-zinc-300">OCR</span>
+                    <span className="text-xs text-zinc-500">(transcribe on export)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedElement.scrollable ?? false}
+                      onChange={(e) => {
+                        const updated = { ...selectedElement, scrollable: e.target.checked };
+                        onUpdateElement(selectedElement.id, { scrollable: e.target.checked });
+                        onUpdateGridTasks?.(updated);
+                      }}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-zinc-300">Scrollable</span>
+                    <span className="text-xs text-zinc-500">(scroll top/bottom/page)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedElement.selectable ?? false}
+                      onChange={(e) => {
+                        const updated = { ...selectedElement, selectable: e.target.checked };
+                        onUpdateElement(selectedElement.id, { selectable: e.target.checked });
+                        onUpdateGridTasks?.(updated);
+                      }}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-zinc-300">Selectable</span>
+                    <span className="text-xs text-zinc-500">(click row to select)</span>
+                  </label>
+                </div>
+                {selectedElement.selectable && (
+                  <div className="mt-2">
+                    <label className="text-xs text-zinc-400">Selection Color</label>
+                    <div className="flex gap-2 mt-1">
+                      <input
+                        type="color"
+                        value={selectedElement.selectionColor || "#3b82f6"}
+                        onChange={(e) =>
+                          onUpdateElement(selectedElement.id, { selectionColor: e.target.value })
+                        }
+                        className="w-8 h-8 rounded cursor-pointer bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={selectedElement.selectionColor || "#3b82f6"}
+                        onChange={(e) =>
+                          onUpdateElement(selectedElement.id, { selectionColor: e.target.value })
+                        }
+                        className="flex-1 bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+                        placeholder="#3b82f6"
                       />
                     </div>
                   </div>

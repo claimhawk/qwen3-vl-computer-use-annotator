@@ -48,6 +48,11 @@ export interface UIElement {
   readonly vAlign?: VAlign;       // For text: vertical alignment
   readonly toleranceX?: number;   // Computed: 70% of element width (or cell width for grids)
   readonly toleranceY?: number;   // Computed: 70% of element height (or cell height for grids)
+  readonly selectionColor?: string;   // For grids: color to simulate row selection
+  readonly scrollable?: boolean;      // For grids: generate scroll tasks (top, bottom, page up/down)
+  readonly selectable?: boolean;      // For grids: generate row selection tasks
+  readonly ocr?: boolean;             // For grids/masks: run OCR and include transcription in export
+  readonly transcription?: string;    // OCR result stored after export
 }
 
 // Actions are inferred from element type:

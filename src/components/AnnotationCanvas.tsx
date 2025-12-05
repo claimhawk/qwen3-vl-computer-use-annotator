@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import { UIElement, BBox, ElementType, getElementColor } from "@/types/annotation";
+import { getGridPositions } from "@/utils/gridUtils";
 
 interface Props {
   imageUrl: string | null;
@@ -10,6 +11,7 @@ interface Props {
   selectedElementId: string | null;
   onElementsChange: (elements: UIElement[]) => void;
   onSelectElement: (id: string | null) => void;
+  onElementCreated?: (element: UIElement) => void;  // Callback for auto-generating tasks
   currentType: ElementType;
   drawMode: "single" | "grid";
   gridRows: number;
@@ -26,6 +28,7 @@ export default function AnnotationCanvas({
   selectedElementId,
   onElementsChange,
   onSelectElement,
+  onElementCreated,
   currentType,
   drawMode,
   gridRows,
@@ -67,45 +70,6 @@ export default function AnnotationCanvas({
   // Effective scale with zoom (defined early for use in callbacks)
   const scale = baseScale * zoomLevel;
 
-  // Helper to get grid cell positions based on custom or uniform sizes
-  const getGridPositions = useCallback((el: UIElement) => {
-    const rows = el.rows || 1;
-    const cols = el.cols || 1;
-    const { x, y, width, height } = el.bbox;
-
-    // Column positions (x coordinates of vertical dividers)
-    const colPositions: number[] = [];
-    if (el.colWidths && el.colWidths.length === cols) {
-      let cumX = x;
-      for (let c = 0; c < cols - 1; c++) {
-        cumX += el.colWidths[c] * width;
-        colPositions.push(cumX);
-      }
-    } else {
-      const cellWidth = width / cols;
-      for (let c = 1; c < cols; c++) {
-        colPositions.push(x + c * cellWidth);
-      }
-    }
-
-    // Row positions (y coordinates of horizontal dividers)
-    const rowPositions: number[] = [];
-    if (el.rowHeights && el.rowHeights.length === rows) {
-      let cumY = y;
-      for (let r = 0; r < rows - 1; r++) {
-        cumY += el.rowHeights[r] * height;
-        rowPositions.push(cumY);
-      }
-    } else {
-      const cellHeight = height / rows;
-      for (let r = 1; r < rows; r++) {
-        rowPositions.push(y + r * cellHeight);
-      }
-    }
-
-    return { colPositions, rowPositions };
-  }, []);
-
   // Detect if mouse is near a grid divider
   const detectDivider = useCallback(
     (pos: { x: number; y: number }): { elementId: string; type: "row" | "col"; index: number } | null => {
@@ -140,7 +104,7 @@ export default function AnnotationCanvas({
 
       return null;
     },
-    [elements, scale, getGridPositions]
+    [elements, scale]
   );
 
   // Handle Space key for pan mode
@@ -262,7 +226,7 @@ export default function AnnotationCanvas({
         const rows = el.rows || 1;
         const cols = el.cols || 1;
         if (rows > 1 || cols > 1) {
-          const { colPositions, rowPositions } = getGridPositions(el);
+          const { colPositions, rowPositions, colBounds, rowBounds } = getGridPositions(el);
 
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
@@ -294,9 +258,6 @@ export default function AnnotationCanvas({
 
           // Draw cell numbers with background for visibility
           ctx.font = "bold 11px sans-serif";
-          // Calculate cell bounds from positions
-          const colBounds = [el.bbox.x, ...colPositions, el.bbox.x + el.bbox.width];
-          const rowBounds = [el.bbox.y, ...rowPositions, el.bbox.y + el.bbox.height];
           for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
               const cellX = offset.x + colBounds[c] * scale;
@@ -351,7 +312,7 @@ export default function AnnotationCanvas({
       }
     };
     img.src = imageUrl;
-  }, [imageUrl, imageSize, elements, selectedElementId, currentRect, scale, offset, currentType, drawMode, gridRows, gridCols, isColorSampling, hoverDivider, getGridPositions]);
+  }, [imageUrl, imageSize, elements, selectedElementId, currentRect, scale, offset, currentType, drawMode, gridRows, gridCols, isColorSampling, hoverDivider]);
 
   // Convert screen coords to image coords
   const screenToImage = useCallback(
@@ -770,6 +731,7 @@ export default function AnnotationCanvas({
         };
         onElementsChange([...elements, newElement]);
         onSelectElement(newElement.id);
+        onElementCreated?.(newElement);
       }
     } else {
       // Single element
@@ -780,6 +742,7 @@ export default function AnnotationCanvas({
       };
       onElementsChange([...elements, newElement]);
       onSelectElement(newElement.id);
+      onElementCreated?.(newElement);
     }
 
     setIsDrawing(false);
