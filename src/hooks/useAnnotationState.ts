@@ -12,6 +12,7 @@ import { UIElement, Task, TaskAction } from "@/types/annotation";
 const SCROLL_TASK_PREFIX = "_scroll_";
 const SELECT_TASK_PREFIX = "_select_";
 const CLICK_TASK_PREFIX = "_click_";
+const ICON_TASK_PREFIX = "_icon_";
 
 /**
  * Generate scroll tasks for a grid element.
@@ -55,34 +56,82 @@ function generateScrollTasks(element: UIElement, elementName?: string): Task[] {
  * Generate row selection task for a grid element.
  * Creates: click the [n] row to select it (single task with [n] placeholder)
  */
-function generateSelectTasks(element: UIElement, elementName?: string): Task[] {
+function generateSelectRowTask(element: UIElement, elementName?: string): Task {
   const name = elementName || element.text || "table";
+  return {
+    id: `${element.id}${SELECT_TASK_PREFIX}row`,
+    prompt: `Click the [n] row of the ${name} to select it`,
+    targetElementId: element.id,
+    action: "left_click" as TaskAction,
+  };
+}
 
-  return [
-    {
-      id: `${element.id}${SELECT_TASK_PREFIX}row`,
-      prompt: `Click the [n] row of the ${name} to select it`,
-      targetElementId: element.id,
-      action: "left_click" as TaskAction,
-    },
-  ];
+/**
+ * Generate cell selection task for a grid element.
+ * Creates: click the cell at row [r], column [c]
+ * Uses left_click at center with 70% tolerance (toleranceX/toleranceY)
+ */
+function generateSelectCellTask(element: UIElement, elementName?: string): Task {
+  const name = elementName || element.text || "table";
+  return {
+    id: `${element.id}${SELECT_TASK_PREFIX}cell`,
+    prompt: `Click the cell at row [r], column [c] in the ${name}`,
+    targetElementId: element.id,
+    action: "left_click" as TaskAction,
+  };
 }
 
 /**
  * Generate click task for a button element.
  */
 function generateClickTask(element: UIElement): Task {
-  const name = element.text || "button";
+  const label = element.text || "button";
+  const taskType = `click_${element.type}_${label}`;
   return {
     id: `${element.id}${CLICK_TASK_PREFIX}`,
-    prompt: `Click the ${name} button`,
+    prompt: `Click the ${label} ${element.type}`,
+    taskType,
     targetElementId: element.id,
     action: "left_click" as TaskAction,
   };
 }
 
+/**
+ * Generate template task for an iconlist.
+ * Format: "Double click the [icon_label] icon to open [icon_label]"
+ * This single task template will be expanded at generation time for each icon.
+ */
+function generateIconListTask(elementId: string): Task {
+  return {
+    id: `${elementId}${ICON_TASK_PREFIX}`,
+    prompt: `Double click the [icon_label] icon to open [icon_label]`,
+    taskType: "open_icon_[icon_label]",
+    targetElementId: elementId,
+    action: "double_click" as TaskAction,
+  };
+}
+
+/**
+ * Generate wait task for a loading element.
+ */
+function generateWaitTask(element: UIElement): Task {
+  const waitTime = element.waitTime ?? 3;
+  const label = element.text || "loading";
+  return {
+    id: `${element.id}_wait`,
+    prompt: `Wait for loading indicator to disappear`,
+    taskType: `wait_${label}`,
+    targetElementId: element.id,
+    action: "wait" as TaskAction,
+    waitTime: waitTime,
+  };
+}
+
 // Element types that automatically get click tasks
 const AUTO_CLICK_TYPES = ["button", "checkbox", "radio", "tab"];
+
+// Element types that automatically get wait tasks
+const AUTO_WAIT_TYPES = ["loading"];
 
 export interface UseAnnotationStateReturn {
   // Elements
@@ -101,6 +150,7 @@ export interface UseAnnotationStateReturn {
   addTask: () => void;
   autoGenerateTasks: (element: UIElement) => void;  // Auto-generate tasks when element is created
   updateGridTasks: (element: UIElement) => void;  // Update tasks based on grid scrollable/selectable flags
+  ensureIconListTask: (elementId: string) => void;  // Ensure iconlist has its task template
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   selectTask: (id: string | null) => void;
@@ -122,6 +172,9 @@ export function useAnnotationState(): UseAnnotationStateReturn {
     if (AUTO_CLICK_TYPES.includes(element.type)) {
       const clickTask = generateClickTask(element);
       setTasks((prev) => [...prev, clickTask]);
+    } else if (AUTO_WAIT_TYPES.includes(element.type)) {
+      const waitTask = generateWaitTask(element);
+      setTasks((prev) => [...prev, waitTask]);
     }
   }, []);
 
@@ -213,10 +266,26 @@ export function useAnnotationState(): UseAnnotationStateReturn {
       // Add scroll tasks if scrollable is checked
       const scrollTasks = element.scrollable ? generateScrollTasks(element) : [];
 
-      // Add selection tasks if selectable is checked
-      const selectTasks = element.selectable ? generateSelectTasks(element) : [];
+      // Add row selection task if selectableRow is checked
+      const rowSelectTask = element.selectableRow ? [generateSelectRowTask(element)] : [];
 
-      return [...filtered, ...scrollTasks, ...selectTasks];
+      // Add cell selection task if selectableCell is checked
+      const cellSelectTask = element.selectableCell ? [generateSelectCellTask(element)] : [];
+
+      return [...filtered, ...scrollTasks, ...rowSelectTask, ...cellSelectTask];
+    });
+  }, []);
+
+  // Ensure iconlist has its task template (only adds if not already present)
+  const ensureIconListTask = useCallback((elementId: string) => {
+    setTasks((prev) => {
+      const taskId = `${elementId}${ICON_TASK_PREFIX}`;
+      // Check if task already exists
+      if (prev.some((t) => t.id === taskId)) {
+        return prev;
+      }
+      // Add the template task
+      return [...prev, generateIconListTask(elementId)];
     });
   }, []);
 
@@ -267,6 +336,7 @@ export function useAnnotationState(): UseAnnotationStateReturn {
     addTask,
     autoGenerateTasks,
     updateGridTasks,
+    ensureIconListTask,
     updateTask,
     deleteTask,
     selectTask,

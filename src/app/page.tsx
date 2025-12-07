@@ -7,6 +7,8 @@ import TaskList from "@/components/TaskList";
 import {
   ElementType,
   ELEMENT_TYPES,
+  BBox,
+  IconDefinition,
 } from "@/types/annotation";
 
 // Custom hooks
@@ -41,6 +43,44 @@ export default function Home() {
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [isRunningOcr, setIsRunningOcr] = useState(false);
+  const [cropRect, setCropRect] = useState<BBox | null>(null);
+
+  // Generator state
+  const [generators, setGenerators] = useState<{ name: string; path: string; hasAnnotations: boolean }[]>([]);
+  const [selectedGenerator, setSelectedGenerator] = useState<string>("");
+  const [loadingGenerators, setLoadingGenerators] = useState(true);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedState, setLastSavedState] = useState<string>("");
+
+  // Track unsaved changes by comparing current state to last saved state
+  useEffect(() => {
+    const currentState = JSON.stringify({
+      elements: annotation.elements,
+      tasks: annotation.tasks,
+      screenName: image.screenName,
+    });
+    if (lastSavedState && currentState !== lastSavedState) {
+      setHasUnsavedChanges(true);
+    }
+  }, [annotation.elements, annotation.tasks, image.screenName, lastSavedState]);
+
+  // Fetch generators on mount
+  useEffect(() => {
+    async function fetchGenerators() {
+      try {
+        const res = await fetch("/api/generators");
+        if (res.ok) {
+          const data = await res.json();
+          setGenerators(data.generators || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch generators:", err);
+      } finally {
+        setLoadingGenerators(false);
+      }
+    }
+    fetchGenerators();
+  }, []);
 
   // Check if there are any elements with OCR checked
   const hasOcrElements = annotation.elements.some((el) => el.ocr === true);
@@ -156,12 +196,12 @@ export default function Home() {
     }
   }, []);
 
-  // Handle crop to element
-  const handleCropToElement = useCallback(async (id: string) => {
-    const element = annotation.elements.find((el) => el.id === id);
-    if (!element || !image.imageUrl || !image.imageSize) return;
+  // Handle applying the crop
+  const handleApplyCrop = useCallback(async () => {
+    if (!cropRect || !image.imageUrl || !image.imageSize) return;
+    if (cropRect.width < 10 || cropRect.height < 10) return;
 
-    const cropBbox = element.bbox;
+    const cropBbox = cropRect;
 
     // Crop the image
     await image.cropToRegion(cropBbox);
@@ -170,8 +210,6 @@ export default function Home() {
     annotation.setElements((prev) => {
       const adjusted = [];
       for (const el of prev) {
-        if (el.id === id) continue;
-
         const elRight = el.bbox.x + el.bbox.width;
         const elBottom = el.bbox.y + el.bbox.height;
         const cropRight = cropBbox.x + cropBbox.width;
@@ -198,7 +236,9 @@ export default function Home() {
     });
 
     annotation.selectElement(null);
-  }, [annotation, image]);
+    setCropRect(null);
+    tools.stopCropMode();
+  }, [cropRect, annotation, image, tools]);
 
   // Handle color sampling
   const handleColorSampled = useCallback((color: string) => {
@@ -208,7 +248,23 @@ export default function Home() {
     tools.stopColorSampling();
   }, [annotation, tools]);
 
-  // Handle download ZIP
+  // Handle icon placement on iconlist
+  const handleIconPlaced = useCallback((elementId: string, icon: IconDefinition) => {
+    const el = annotation.elements.find((e) => e.id === elementId);
+    if (!el) return;
+
+    const existingIcons = el.icons ?? [];
+
+    annotation.updateElement(elementId, {
+      icons: [...existingIcons, icon],
+    });
+
+    // Ensure iconlist has its task template
+    annotation.ensureIconListTask(elementId);
+  }, [annotation]);
+
+
+  // Handle download ZIP (and optionally save to generator)
   const downloadZip = useCallback(async () => {
     if (!image.imageSize || !image.imageUrl) return;
 
@@ -228,24 +284,50 @@ export default function Home() {
         (status) => setExportStatus(status)
       );
 
-      setExportStatus("Downloading...");
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${image.screenName}.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
+      // If a generator is selected, save to it via API
+      if (selectedGenerator) {
+        setExportStatus("Saving to generator...");
+        const formData = new FormData();
+        formData.append("generator", selectedGenerator);
+        formData.append("zip", zipBlob, `${image.screenName}.zip`);
+
+        const res = await fetch("/api/generators/save", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to save to generator");
+        }
+
+        const result = await res.json();
+        console.log("Saved to generator:", result);
+        setExportStatus("Saved!");
+
+        // Brief delay to show success message
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } else {
+        // No generator selected, just download
+        setExportStatus("Downloading...");
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${image.screenName}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
-      alert("Failed to create ZIP");
+      alert(err instanceof Error ? err.message : "Failed to create ZIP");
       console.error(err);
     } finally {
       setIsExporting(false);
       setExportStatus(null);
     }
-  }, [image, annotation]);
+  }, [image, annotation, selectedGenerator]);
 
-  // Handle import
-  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle import from file
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -274,13 +356,162 @@ export default function Home() {
     }
   }, [image, annotation]);
 
+  // Handle import from selected generator
+  const handleImportFromGenerator = useCallback(async () => {
+    if (!selectedGenerator) return;
+
+    try {
+      const res = await fetch(`/api/generators/load?generator=${encodeURIComponent(selectedGenerator)}`);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to load from generator");
+      }
+
+      const data = await res.json();
+      const loadedAnnotation = data.annotation;
+
+      image.setScreenName(loadedAnnotation.screenName);
+
+      if (data.imageDataUrl) {
+        image.setImageData(
+          data.imageDataUrl,
+          [...loadedAnnotation.imageSize] as [number, number],
+          loadedAnnotation.imagePath || ""
+        );
+      }
+
+      annotation.loadAnnotation(loadedAnnotation.elements, loadedAnnotation.tasks || []);
+
+      // Mark as saved state
+      const savedState = JSON.stringify({
+        elements: loadedAnnotation.elements,
+        tasks: loadedAnnotation.tasks || [],
+        screenName: loadedAnnotation.screenName,
+      });
+      setLastSavedState(savedState);
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to load from generator");
+      console.error(err);
+    }
+  }, [selectedGenerator, image, annotation]);
+
+  // Handle generator change with unsaved changes warning
+  const handleGeneratorChange = useCallback((newGenerator: string) => {
+    if (hasUnsavedChanges) {
+      const confirmed = window.confirm(
+        "You have unsaved changes. Discard changes and switch generator?"
+      );
+      if (!confirmed) return;
+    }
+    setSelectedGenerator(newGenerator);
+    setHasUnsavedChanges(false);
+    setLastSavedState("");
+  }, [hasUnsavedChanges]);
+
+  // Save to generator config folder (annotated.zip + annotation.json)
+  const saveToConfig = useCallback(async () => {
+    if (!selectedGenerator || !image.imageSize || !image.imageUrl) return;
+
+    setIsExporting(true);
+    setExportStatus("Preparing...");
+
+    try {
+      // Create the ZIP
+      const zipBlob = await createExportZip(
+        image.imageUrl,
+        {
+          screenName: image.screenName,
+          imageSize: image.imageSize,
+          imagePath: image.imagePath,
+          elements: annotation.elements,
+          tasks: annotation.tasks,
+        },
+        (status) => setExportStatus(status)
+      );
+
+      // Create annotation JSON
+      const annotationData = JSON.stringify({
+        screenName: image.screenName,
+        imageSize: image.imageSize,
+        imagePath: image.imagePath,
+        elements: annotation.elements,
+        tasks: annotation.tasks,
+      }, null, 2);
+
+      setExportStatus("Saving to config...");
+
+      const formData = new FormData();
+      formData.append("generator", selectedGenerator);
+      formData.append("zip", zipBlob, "annotated.zip");
+      formData.append("annotation", annotationData);
+
+      const res = await fetch("/api/generators/save-config", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to save to config");
+      }
+
+      // Update generators list to reflect new annotation
+      setGenerators((prev) =>
+        prev.map((g) =>
+          g.name === selectedGenerator ? { ...g, hasAnnotations: true } : g
+        )
+      );
+
+      // Mark as saved
+      const savedState = JSON.stringify({
+        elements: annotation.elements,
+        tasks: annotation.tasks,
+        screenName: image.screenName,
+      });
+      setLastSavedState(savedState);
+      setHasUnsavedChanges(false);
+
+      setExportStatus("Saved!");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to save to config");
+      console.error(err);
+    } finally {
+      setIsExporting(false);
+      setExportStatus(null);
+    }
+  }, [selectedGenerator, image, annotation]);
+
   // Handle grid row/col changes that also update selected element
+  // Preserves existing row/col positions when adding/removing
   const handleGridRowsChange = useCallback((val: number) => {
     tools.setGridRows(val);
     if (annotation.selectedElementId) {
       const el = annotation.elements.find((e) => e.id === annotation.selectedElementId);
       if (el && isGridType(el.type)) {
-        annotation.updateElement(annotation.selectedElementId, { rows: val });
+        const oldRows = el.rows || 1;
+        const oldHeights = el.rowHeights && el.rowHeights.length === oldRows
+          ? [...el.rowHeights]
+          : Array(oldRows).fill(1 / oldRows);
+
+        let newHeights: number[];
+        if (val > oldRows) {
+          // Adding rows: split last row
+          const addCount = val - oldRows;
+          const lastHeight = oldHeights[oldRows - 1];
+          const splitHeight = lastHeight / (addCount + 1);
+          newHeights = [...oldHeights.slice(0, -1), ...Array(addCount + 1).fill(splitHeight)];
+        } else if (val < oldRows) {
+          // Removing rows: merge into last remaining
+          const removed = oldHeights.slice(val - 1);
+          const removedSum = removed.reduce((a, b) => a + b, 0);
+          newHeights = [...oldHeights.slice(0, val - 1), removedSum];
+        } else {
+          newHeights = oldHeights;
+        }
+
+        annotation.updateElement(annotation.selectedElementId, { rows: val, rowHeights: newHeights });
       }
     }
   }, [tools, annotation]);
@@ -290,7 +521,28 @@ export default function Home() {
     if (annotation.selectedElementId) {
       const el = annotation.elements.find((e) => e.id === annotation.selectedElementId);
       if (el && ["grid", "icon"].includes(el.type)) {
-        annotation.updateElement(annotation.selectedElementId, { cols: val });
+        const oldCols = el.cols || 1;
+        const oldWidths = el.colWidths && el.colWidths.length === oldCols
+          ? [...el.colWidths]
+          : Array(oldCols).fill(1 / oldCols);
+
+        let newWidths: number[];
+        if (val > oldCols) {
+          // Adding cols: split last col
+          const addCount = val - oldCols;
+          const lastWidth = oldWidths[oldCols - 1];
+          const splitWidth = lastWidth / (addCount + 1);
+          newWidths = [...oldWidths.slice(0, -1), ...Array(addCount + 1).fill(splitWidth)];
+        } else if (val < oldCols) {
+          // Removing cols: merge into last remaining
+          const removed = oldWidths.slice(val - 1);
+          const removedSum = removed.reduce((a, b) => a + b, 0);
+          newWidths = [...oldWidths.slice(0, val - 1), removedSum];
+        } else {
+          newWidths = oldWidths;
+        }
+
+        annotation.updateElement(annotation.selectedElementId, { cols: val, colWidths: newWidths });
       }
     }
   }, [tools, annotation]);
@@ -330,15 +582,65 @@ export default function Home() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-2">
-          <label className="relative cursor-pointer bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded text-sm">
-            Import
-            <input
-              type="file"
-              accept=".json,.zip"
-              onChange={handleImport}
-              className="absolute inset-0 opacity-0 cursor-pointer"
-            />
-          </label>
+          {/* Generator selector */}
+          <div className="flex items-center gap-1">
+            {hasUnsavedChanges && (
+              <span className="text-yellow-400 text-xs" title="Unsaved changes">●</span>
+            )}
+            <select
+              value={selectedGenerator}
+              onChange={(e) => handleGeneratorChange(e.target.value)}
+              disabled={loadingGenerators}
+              className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm min-w-[200px]"
+            >
+              <option value="">No generator (file only)</option>
+              {generators.map((g) => (
+                <option key={g.name} value={g.name}>
+                  {g.name} {g.hasAnnotations ? "●" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Import button - from generator or file */}
+          {selectedGenerator && generators.find(g => g.name === selectedGenerator)?.hasAnnotations ? (
+            <button
+              onClick={handleImportFromGenerator}
+              className="bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded text-sm"
+              title={`Load annotations from ${selectedGenerator}`}
+            >
+              Load
+            </button>
+          ) : (
+            <label className="relative cursor-pointer bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded text-sm">
+              Import
+              <input
+                type="file"
+                accept=".json,.zip"
+                onChange={handleImportFile}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
+            </label>
+          )}
+
+          {/* Save to config button (disk icon) */}
+          {selectedGenerator && (
+            <button
+              onClick={saveToConfig}
+              disabled={annotation.elements.length === 0 || isExporting || ocrPending || isRunningOcr}
+              className={`p-1.5 rounded ${
+                hasUnsavedChanges
+                  ? "bg-yellow-600 hover:bg-yellow-700"
+                  : "bg-zinc-700 hover:bg-zinc-600"
+              } disabled:bg-zinc-600 disabled:cursor-not-allowed`}
+              title={`Save to ${selectedGenerator}/config/`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+            </button>
+          )}
+
           <button
             onClick={runOcr}
             disabled={!hasOcrElements || isRunningOcr}
@@ -352,13 +654,22 @@ export default function Home() {
           >
             {isRunningOcr ? "OCR..." : "OCR"}
           </button>
+
           <button
             onClick={downloadZip}
             disabled={annotation.elements.length === 0 || isExporting || ocrPending || isRunningOcr}
-            className="bg-green-600 hover:bg-green-700 disabled:bg-zinc-600 disabled:cursor-not-allowed px-3 py-1.5 rounded text-sm font-medium min-w-[110px]"
-            title={ocrPending ? "Run OCR first" : undefined}
+            className={`${
+              selectedGenerator
+                ? "bg-purple-600 hover:bg-purple-700"
+                : "bg-green-600 hover:bg-green-700"
+            } disabled:bg-zinc-600 disabled:cursor-not-allowed px-3 py-1.5 rounded text-sm font-medium min-w-[110px]`}
+            title={ocrPending ? "Run OCR first" : selectedGenerator ? `Save to ${selectedGenerator}` : undefined}
           >
-            {isExporting ? (exportStatus || "Exporting...") : "Download ZIP"}
+            {isExporting
+              ? (exportStatus || "Exporting...")
+              : selectedGenerator
+              ? "Save"
+              : "Download ZIP"}
           </button>
         </div>
       </header>
@@ -420,14 +731,44 @@ export default function Home() {
           </div>
 
           <div className="p-3 border-b border-zinc-700">
+            <h3 className="text-sm font-semibold mb-2">Tools</h3>
+            <button
+              onClick={() => {
+                if (tools.isCropMode) {
+                  tools.stopCropMode();
+                  setCropRect(null);
+                } else {
+                  tools.startCropMode();
+                }
+              }}
+              className={`w-full px-2 py-1.5 rounded text-xs text-left flex items-center gap-1.5 ${
+                tools.isCropMode
+                  ? "ring-2 ring-orange-500 bg-orange-600/30"
+                  : "bg-zinc-700 hover:bg-zinc-600"
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+              </svg>
+              Crop Tool
+            </button>
+          </div>
+
+          <div className="p-3 border-b border-zinc-700">
             <h3 className="text-sm font-semibold mb-2">Element Type</h3>
             <div className="grid grid-cols-2 gap-1">
               {ELEMENT_TYPES.map((t) => (
                 <button
                   key={t.value}
-                  onClick={() => tools.setCurrentType(t.value)}
+                  onClick={() => {
+                    tools.setCurrentType(t.value);
+                    if (tools.isCropMode) {
+                      tools.stopCropMode();
+                      setCropRect(null);
+                    }
+                  }}
                   className={`px-2 py-1.5 rounded text-xs text-left flex items-center gap-1.5 ${
-                    tools.currentType === t.value
+                    tools.currentType === t.value && !tools.isCropMode
                       ? "ring-2 ring-blue-500 bg-zinc-700"
                       : "bg-zinc-700 hover:bg-zinc-600"
                   }`}
@@ -490,7 +831,40 @@ export default function Home() {
                 isColorSampling={tools.isColorSampling}
                 onColorSampled={handleColorSampled}
                 zoomLevel={view.zoomLevel}
+                isCropMode={tools.isCropMode}
+                cropRect={cropRect}
+                onCropRectChange={setCropRect}
+                isIconPlacementMode={tools.isIconPlacementMode}
+                onIconPlaced={handleIconPlaced}
               />
+              {/* Crop controls */}
+              {tools.isCropMode && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-zinc-800/95 rounded-lg px-4 py-2 shadow-lg border border-orange-500/50">
+                  <span className="text-sm text-orange-400 font-medium">Crop Mode</span>
+                  {cropRect && cropRect.width >= 10 && cropRect.height >= 10 && (
+                    <>
+                      <span className="text-xs text-zinc-400">
+                        {Math.round(cropRect.width)} x {Math.round(cropRect.height)}
+                      </span>
+                      <button
+                        onClick={handleApplyCrop}
+                        className="bg-orange-600 hover:bg-orange-700 text-white rounded px-3 py-1 text-sm font-medium"
+                      >
+                        Apply Crop
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => {
+                      tools.stopCropMode();
+                      setCropRect(null);
+                    }}
+                    className="bg-zinc-700 hover:bg-zinc-600 text-white rounded px-3 py-1 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
               {/* Zoom controls */}
               <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-zinc-800/90 rounded-lg px-3 py-2 shadow-lg">
                 <button
@@ -540,9 +914,16 @@ export default function Home() {
                 onSelectElement={annotation.selectElement}
                 onUpdateElement={annotation.updateElement}
                 onDeleteElement={annotation.deleteElement}
-                onCropToElement={handleCropToElement}
                 onStartColorSampling={tools.startColorSampling}
                 onUpdateGridTasks={annotation.updateGridTasks}
+                isIconPlacementMode={tools.isIconPlacementMode}
+                onToggleIconPlacementMode={() => {
+                  if (tools.isIconPlacementMode) {
+                    tools.stopIconPlacementMode();
+                  } else {
+                    tools.startIconPlacementMode();
+                  }
+                }}
               />
             </div>
           )}

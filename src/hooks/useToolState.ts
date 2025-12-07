@@ -20,6 +20,12 @@ export interface UseToolStateReturn {
   isColorSampling: boolean;
   startColorSampling: () => void;
   stopColorSampling: () => void;
+  isCropMode: boolean;
+  startCropMode: () => void;
+  stopCropMode: () => void;
+  isIconPlacementMode: boolean;
+  startIconPlacementMode: () => void;
+  stopIconPlacementMode: () => void;
   syncFromElement: (element: UIElement | undefined) => void;
 }
 
@@ -31,13 +37,37 @@ export function useToolState(): UseToolStateReturn {
   const [gridRows, setGridRows] = useState(1);
   const [gridCols, setGridCols] = useState(1);
   const [isColorSampling, setIsColorSampling] = useState(false);
+  const [isCropMode, setIsCropMode] = useState(false);
+  const [isIconPlacementMode, setIsIconPlacementMode] = useState(false);
 
   const startColorSampling = useCallback(() => {
     setIsColorSampling(true);
+    setIsCropMode(false);
+    setIsIconPlacementMode(false);
   }, []);
 
   const stopColorSampling = useCallback(() => {
     setIsColorSampling(false);
+  }, []);
+
+  const startCropMode = useCallback(() => {
+    setIsCropMode(true);
+    setIsColorSampling(false);
+    setIsIconPlacementMode(false);
+  }, []);
+
+  const stopCropMode = useCallback(() => {
+    setIsCropMode(false);
+  }, []);
+
+  const startIconPlacementMode = useCallback(() => {
+    setIsIconPlacementMode(true);
+    setIsColorSampling(false);
+    setIsCropMode(false);
+  }, []);
+
+  const stopIconPlacementMode = useCallback(() => {
+    setIsIconPlacementMode(false);
   }, []);
 
   const syncFromElement = useCallback((element: UIElement | undefined) => {
@@ -59,6 +89,12 @@ export function useToolState(): UseToolStateReturn {
     isColorSampling,
     startColorSampling,
     stopColorSampling,
+    isCropMode,
+    startCropMode,
+    stopCropMode,
+    isIconPlacementMode,
+    startIconPlacementMode,
+    stopIconPlacementMode,
     syncFromElement,
   };
 }

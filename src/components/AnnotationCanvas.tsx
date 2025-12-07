@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect, useCallback } from "react";
-import { UIElement, BBox, ElementType, getElementColor } from "@/types/annotation";
+import { UIElement, BBox, ElementType, getElementColor, IconDefinition } from "@/types/annotation";
 import { getGridPositions } from "@/utils/gridUtils";
 
 interface Props {
@@ -19,6 +19,11 @@ interface Props {
   isColorSampling?: boolean;
   onColorSampled?: (color: string) => void;
   zoomLevel?: number;
+  isCropMode?: boolean;
+  cropRect?: BBox | null;
+  onCropRectChange?: (rect: BBox | null) => void;
+  isIconPlacementMode?: boolean;
+  onIconPlaced?: (elementId: string, icon: IconDefinition) => void;
 }
 
 export default function AnnotationCanvas({
@@ -36,6 +41,11 @@ export default function AnnotationCanvas({
   isColorSampling,
   onColorSampled,
   zoomLevel = 1,
+  isCropMode,
+  cropRect,
+  onCropRectChange,
+  isIconPlacementMode,
+  onIconPlaced,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,6 +72,12 @@ export default function AnnotationCanvas({
     type: "row" | "col";
     index: number;
   } | null>(null);
+  const [cropResizeEdge, setCropResizeEdge] = useState<string | null>(null);
+  const [cropResizeStart, setCropResizeStart] = useState<{ x: number; y: number; bbox: BBox } | null>(null);
+  const [hoverCropEdge, setHoverCropEdge] = useState<string | null>(null);
+
+  // Cache for loading indicator images
+  const loadingImages = useRef<Map<string, HTMLImageElement>>(new Map());
 
   // Edge detection threshold in pixels
   const EDGE_THRESHOLD = 8;
@@ -135,7 +151,7 @@ export default function AnnotationCanvas({
   }, []);
 
   // Calculate base scale to fit image in container
-  useEffect(() => {
+  const recalculateScale = useCallback(() => {
     if (!imageSize || !containerRef.current) return;
     const container = containerRef.current;
     const containerWidth = container.clientWidth;
@@ -144,8 +160,25 @@ export default function AnnotationCanvas({
     const scaleY = containerHeight / imageSize[1];
     const newBaseScale = Math.min(scaleX, scaleY, 1); // Don't scale up
     setBaseScale(newBaseScale);
-    setPan({ x: 0, y: 0 }); // Reset pan when image changes
   }, [imageSize]);
+
+  useEffect(() => {
+    recalculateScale();
+    setPan({ x: 0, y: 0 }); // Reset pan when image changes
+  }, [imageSize, recalculateScale]);
+
+  // Recalculate scale when container resizes (e.g., panels collapse)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      recalculateScale();
+    });
+    resizeObserver.observe(container);
+
+    return () => resizeObserver.disconnect();
+  }, [recalculateScale]);
 
   // Reset pan when zoom returns to 1 (fit)
   useEffect(() => {
@@ -165,6 +198,24 @@ export default function AnnotationCanvas({
       y: (containerHeight - imageSize[1] * scale) / 2 + pan.y,
     });
   }, [imageSize, scale, pan]);
+
+  // Preload loading indicator images
+  useEffect(() => {
+    const loadingElements = elements.filter(el => el.type === "loading" && el.loadingImage);
+    loadingElements.forEach(el => {
+      if (!loadingImages.current.has(el.id) || loadingImages.current.get(el.id)?.src !== el.loadingImage) {
+        const img = new Image();
+        img.src = el.loadingImage!;
+        loadingImages.current.set(el.id, img);
+      }
+    });
+    // Clean up removed elements
+    loadingImages.current.forEach((_, id) => {
+      if (!loadingElements.find(el => el.id === id)) {
+        loadingImages.current.delete(id);
+      }
+    });
+  }, [elements]);
 
   // Draw canvas
   useEffect(() => {
@@ -273,11 +324,79 @@ export default function AnnotationCanvas({
             }
           }
         }
+
+        // Draw icons for iconlist elements
+        if ((el.type === "iconlist" || el.type === "toolbar" || el.type === "menubar") && el.icons && el.icons.length > 0) {
+          const iconW = el.iconWidth ?? 32;
+          const iconH = el.iconHeight ?? 32;
+
+          ctx.setLineDash([]);
+          el.icons.forEach((icon, idx) => {
+            // Calculate absolute icon center position
+            const iconCenterX = offset.x + (el.bbox.x + icon.centerX) * scale;
+            const iconCenterY = offset.y + (el.bbox.y + icon.centerY) * scale;
+            const scaledW = iconW * scale;
+            const scaledH = iconH * scale;
+
+            // Draw icon bounding box
+            ctx.strokeStyle = "#f97316"; // Orange
+            ctx.lineWidth = 2;
+            ctx.strokeRect(
+              iconCenterX - scaledW / 2,
+              iconCenterY - scaledH / 2,
+              scaledW,
+              scaledH
+            );
+
+            // Draw center crosshair
+            ctx.beginPath();
+            ctx.moveTo(iconCenterX - 5, iconCenterY);
+            ctx.lineTo(iconCenterX + 5, iconCenterY);
+            ctx.moveTo(iconCenterX, iconCenterY - 5);
+            ctx.lineTo(iconCenterX, iconCenterY + 5);
+            ctx.stroke();
+
+            // Draw index number
+            ctx.font = "bold 10px sans-serif";
+            const numText = String(idx + 1);
+            const numWidth = ctx.measureText(numText).width;
+            ctx.fillStyle = "#f97316";
+            ctx.fillRect(iconCenterX - scaledW / 2 - 1, iconCenterY - scaledH / 2 - 14, numWidth + 6, 12);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(numText, iconCenterX - scaledW / 2 + 2, iconCenterY - scaledH / 2 - 4);
+
+            // Draw label if exists
+            if (icon.label) {
+              ctx.font = "10px sans-serif";
+              const labelWidth = ctx.measureText(icon.label).width;
+              ctx.fillStyle = "rgba(0,0,0,0.7)";
+              ctx.fillRect(iconCenterX - labelWidth / 2 - 2, iconCenterY + scaledH / 2 + 2, labelWidth + 4, 12);
+              ctx.fillStyle = "#ffffff";
+              ctx.fillText(icon.label, iconCenterX - labelWidth / 2, iconCenterY + scaledH / 2 + 12);
+            }
+          });
+        }
+
+        // Draw loading indicator image
+        if (el.type === "loading" && el.loadingImage) {
+          const img = loadingImages.current.get(el.id);
+          if (img && img.complete) {
+            ctx.drawImage(img, x, y, w, h);
+          }
+          // Draw wait time label
+          const waitLabel = `wait: ${el.waitTime ?? 3}s`;
+          ctx.font = "bold 11px sans-serif";
+          const waitWidth = ctx.measureText(waitLabel).width;
+          ctx.fillStyle = "#f472b6";
+          ctx.fillRect(x + w - waitWidth - 8, y + h - 16, waitWidth + 6, 14);
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(waitLabel, x + w - waitWidth - 5, y + h - 5);
+        }
       });
       } // end if !isColorSampling
 
       // Draw current rectangle being drawn (also hide when sampling)
-      if (currentRect && !isColorSampling) {
+      if (currentRect && !isColorSampling && !isCropMode) {
         ctx.strokeStyle = getElementColor(currentType);
         ctx.lineWidth = 2;
         ctx.setLineDash([]);
@@ -310,9 +429,58 @@ export default function AnnotationCanvas({
           }
         }
       }
+
+      // Draw crop rectangle
+      if (cropRect && isCropMode) {
+        const x = offset.x + cropRect.x * scale;
+        const y = offset.y + cropRect.y * scale;
+        const w = cropRect.width * scale;
+        const h = cropRect.height * scale;
+
+        // Draw darkened overlay outside crop area
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        // Top
+        ctx.fillRect(offset.x, offset.y, imageSize[0] * scale, cropRect.y * scale);
+        // Bottom
+        ctx.fillRect(offset.x, y + h, imageSize[0] * scale, (imageSize[1] - cropRect.y - cropRect.height) * scale);
+        // Left
+        ctx.fillRect(offset.x, y, cropRect.x * scale, h);
+        // Right
+        ctx.fillRect(x + w, y, (imageSize[0] - cropRect.x - cropRect.width) * scale, h);
+
+        // Draw crop border
+        ctx.strokeStyle = "#f97316"; // Orange
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.strokeRect(x, y, w, h);
+
+        // Draw corner handles
+        const handleSize = 8;
+        ctx.fillStyle = "#f97316";
+        // Corners
+        ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+        // Edge midpoints
+        ctx.fillRect(x + w/2 - handleSize/2, y - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(x + w/2 - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(x - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(x + w - handleSize/2, y + h/2 - handleSize/2, handleSize, handleSize);
+
+        // Draw dimensions label
+        ctx.font = "bold 12px sans-serif";
+        ctx.fillStyle = "#f97316";
+        const dimText = `${Math.round(cropRect.width)} × ${Math.round(cropRect.height)}`;
+        const textMetrics = ctx.measureText(dimText);
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(x + w/2 - textMetrics.width/2 - 4, y + h + 8, textMetrics.width + 8, 18);
+        ctx.fillStyle = "#f97316";
+        ctx.fillText(dimText, x + w/2 - textMetrics.width/2, y + h + 22);
+      }
     };
     img.src = imageUrl;
-  }, [imageUrl, imageSize, elements, selectedElementId, currentRect, scale, offset, currentType, drawMode, gridRows, gridCols, isColorSampling, hoverDivider]);
+  }, [imageUrl, imageSize, elements, selectedElementId, currentRect, scale, offset, currentType, drawMode, gridRows, gridCols, isColorSampling, hoverDivider, cropRect, isCropMode]);
 
   // Convert screen coords to image coords
   const screenToImage = useCallback(
@@ -325,6 +493,37 @@ export default function AnnotationCanvas({
       return { x: Math.round(x), y: Math.round(y) };
     },
     [scale, offset]
+  );
+
+  // Detect which edge of crop rect mouse is near
+  const detectCropEdge = useCallback(
+    (pos: { x: number; y: number }): string | null => {
+      if (!cropRect) return null;
+
+      const threshold = EDGE_THRESHOLD / scale;
+      const { x, y, width, height } = cropRect;
+      const right = x + width;
+      const bottom = y + height;
+
+      const nearLeft = Math.abs(pos.x - x) < threshold;
+      const nearRight = Math.abs(pos.x - right) < threshold;
+      const nearTop = Math.abs(pos.y - y) < threshold;
+      const nearBottom = Math.abs(pos.y - bottom) < threshold;
+      const withinX = pos.x >= x - threshold && pos.x <= right + threshold;
+      const withinY = pos.y >= y - threshold && pos.y <= bottom + threshold;
+
+      if (nearTop && nearLeft && withinX && withinY) return "nw";
+      if (nearBottom && nearRight && withinX && withinY) return "se";
+      if (nearTop && nearRight && withinX && withinY) return "ne";
+      if (nearBottom && nearLeft && withinX && withinY) return "sw";
+      if (nearLeft && withinY) return "w";
+      if (nearRight && withinY) return "e";
+      if (nearTop && withinX) return "n";
+      if (nearBottom && withinX) return "s";
+
+      return null;
+    },
+    [cropRect, scale]
   );
 
   // Detect which edge of selected element mouse is near
@@ -430,6 +629,43 @@ export default function AnnotationCanvas({
       return;
     }
 
+    // Handle crop mode
+    if (isCropMode) {
+      // Check for crop rect edge resize
+      const cropEdge = detectCropEdge(pos);
+      if (cropEdge && cropRect) {
+        setCropResizeEdge(cropEdge);
+        setCropResizeStart({ x: pos.x, y: pos.y, bbox: cropRect });
+        return;
+      }
+      // Start drawing new crop rect
+      setIsDrawing(true);
+      setStartPoint(pos);
+      return;
+    }
+
+    // Handle icon placement mode for IconList elements
+    if (isIconPlacementMode && selectedElementId && onIconPlaced) {
+      const selectedEl = elements.find((el) => el.id === selectedElementId);
+      if (selectedEl && (selectedEl.type === "iconlist" || selectedEl.type === "toolbar" || selectedEl.type === "menubar")) {
+        // Check if click is within the iconlist bounds
+        if (
+          pos.x >= selectedEl.bbox.x &&
+          pos.x <= selectedEl.bbox.x + selectedEl.bbox.width &&
+          pos.y >= selectedEl.bbox.y &&
+          pos.y <= selectedEl.bbox.y + selectedEl.bbox.height
+        ) {
+          // Calculate relative position within iconlist
+          const relX = pos.x - selectedEl.bbox.x;
+          const relY = pos.y - selectedEl.bbox.y;
+          const elementId = `icon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          onIconPlaced(selectedEl.id, { elementId, centerX: relX, centerY: relY });
+        }
+        // In icon placement mode, don't start drawing regardless of where clicked
+        return;
+      }
+    }
+
     // Always start drawing - we'll check on mouseUp if it was a click or drag
     setIsDrawing(true);
     setStartPoint(pos);
@@ -437,6 +673,9 @@ export default function AnnotationCanvas({
 
   const handleClick = (e: React.MouseEvent) => {
     if (!imageUrl) return;
+
+    // Skip element selection when in icon placement mode
+    if (isIconPlacementMode) return;
 
     const pos = screenToImage(e.clientX, e.clientY);
 
@@ -617,8 +856,54 @@ export default function AnnotationCanvas({
       return;
     }
 
+    // Handle crop rect resizing
+    if (cropResizeEdge && cropResizeStart && onCropRectChange && imageSize) {
+      const dx = pos.x - cropResizeStart.x;
+      const dy = pos.y - cropResizeStart.y;
+      const orig = cropResizeStart.bbox;
+      let newBbox = { ...orig };
+
+      const [imgW, imgH] = imageSize;
+
+      switch (cropResizeEdge) {
+        case "e":
+          newBbox = { ...orig, width: Math.max(10, orig.width + dx) };
+          break;
+        case "w":
+          newBbox = { ...orig, x: orig.x + dx, width: Math.max(10, orig.width - dx) };
+          break;
+        case "s":
+          newBbox = { ...orig, height: Math.max(10, orig.height + dy) };
+          break;
+        case "n":
+          newBbox = { ...orig, y: orig.y + dy, height: Math.max(10, orig.height - dy) };
+          break;
+        case "se":
+          newBbox = { ...orig, width: Math.max(10, orig.width + dx), height: Math.max(10, orig.height + dy) };
+          break;
+        case "nw":
+          newBbox = { ...orig, x: orig.x + dx, y: orig.y + dy, width: Math.max(10, orig.width - dx), height: Math.max(10, orig.height - dy) };
+          break;
+        case "ne":
+          newBbox = { ...orig, y: orig.y + dy, width: Math.max(10, orig.width + dx), height: Math.max(10, orig.height - dy) };
+          break;
+        case "sw":
+          newBbox = { ...orig, x: orig.x + dx, width: Math.max(10, orig.width - dx), height: Math.max(10, orig.height + dy) };
+          break;
+      }
+
+      // Clamp to image bounds
+      newBbox.x = Math.max(0, Math.min(newBbox.x, imgW - 10));
+      newBbox.y = Math.max(0, Math.min(newBbox.y, imgH - 10));
+      newBbox.width = Math.min(newBbox.width, imgW - newBbox.x);
+      newBbox.height = Math.min(newBbox.height, imgH - newBbox.y);
+
+      onCropRectChange(newBbox);
+      return;
+    }
+
     // Update hover edge/divider for cursor
-    if (!isDrawing && !isColorSampling) {
+    if (!isDrawing && !isColorSampling && !isCropMode) {
       // Check for divider hover first
       const divider = detectDivider(pos);
       setHoverDivider(divider);
@@ -630,6 +915,12 @@ export default function AnnotationCanvas({
       } else {
         setHoverEdge(null);
       }
+    }
+
+    // Update hover for crop mode
+    if (isCropMode && !isDrawing && !cropResizeEdge) {
+      const cropEdge = detectCropEdge(pos);
+      setHoverCropEdge(cropEdge);
     }
 
     if (!isDrawing || !startPoint || !imageSize) return;
@@ -645,7 +936,12 @@ export default function AnnotationCanvas({
     const width = Math.abs(clampedX - startPoint.x);
     const height = Math.abs(clampedY - startPoint.y);
 
-    setCurrentRect({ x, y, width, height });
+    // In crop mode, update crop rect instead of currentRect
+    if (isCropMode && onCropRectChange) {
+      onCropRectChange({ x, y, width, height });
+    } else {
+      setCurrentRect({ x, y, width, height });
+    }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
@@ -668,7 +964,21 @@ export default function AnnotationCanvas({
       return;
     }
 
+    // Stop crop resizing
+    if (cropResizeEdge) {
+      setCropResizeEdge(null);
+      setCropResizeStart(null);
+      return;
+    }
+
     if (!isDrawing) {
+      return;
+    }
+
+    // Crop mode: just stop drawing (crop rect is already updated via onCropRectChange)
+    if (isCropMode) {
+      setIsDrawing(false);
+      setStartPoint(null);
       return;
     }
 
@@ -760,8 +1070,12 @@ export default function AnnotationCanvas({
     if (hoverDivider) {
       return hoverDivider.type === "col" ? "col-resize" : "row-resize";
     }
+    if (cropResizeEdge) return getCursorForEdge(cropResizeEdge);
+    if (hoverCropEdge) return getCursorForEdge(hoverCropEdge);
     if (resizeEdge) return getCursorForEdge(resizeEdge);
     if (isColorSampling) return "copy";
+    if (isCropMode) return "crosshair";
+    if (isIconPlacementMode) return "cell";
     if (hoverEdge) return getCursorForEdge(hoverEdge);
     return "crosshair";
   };
@@ -785,6 +1099,9 @@ export default function AnnotationCanvas({
           setHoverEdge(null);
           setDraggingDivider(null);
           setHoverDivider(null);
+          setCropResizeEdge(null);
+          setCropResizeStart(null);
+          setHoverCropEdge(null);
         }}
       />
       {!imageUrl && (

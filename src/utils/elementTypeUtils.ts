@@ -16,7 +16,7 @@ export const MASKABLE_TYPES: readonly ElementType[] = [
   "listbox",
   "grid",
   "icon",
-  "panel",
+  "iconlist",
   "toolbar",
   "menubar",
   "text",
@@ -27,7 +27,7 @@ export const MASKABLE_TYPES: readonly ElementType[] = [
  * Element types that represent panels or containers
  */
 export const PANEL_TYPES: readonly ElementType[] = [
-  "panel",
+  "iconlist",
   "dialog",
   "toolbar",
   "menubar",
@@ -56,7 +56,7 @@ export const COLUMN_ONLY_TYPES: readonly ElementType[] = [
  */
 export const EXPORTABLE_ICON_TYPES: readonly ElementType[] = [
   "icon",
-  "panel",
+  "iconlist",
   "toolbar",
   "menubar",
 ] as const;
@@ -131,6 +131,8 @@ export function getDefaultAction(type: ElementType): string {
       return "left_click";
     case "scrollbar":
       return "scroll";
+    case "loading":
+      return "wait";
     default:
       return "left_click";
   }

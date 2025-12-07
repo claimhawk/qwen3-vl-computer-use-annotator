@@ -95,6 +95,9 @@ export async function createExportZip(
   // 6. Export OCR regions for debugging
   await addOcrRegions(zip, img, elements);
 
+  // 7. Export loading indicator images
+  await addLoadingImages(zip, elements);
+
   return zip.generateAsync({ type: "blob" });
 }
 
@@ -228,29 +231,6 @@ async function addMaskedImage(
     // Fill the region with sampled color
     ctx.fillStyle = el.maskColor;
     ctx.fillRect(el.bbox.x, el.bbox.y, el.bbox.width, el.bbox.height);
-
-    // Only draw grid lines for actual grid elements
-    if (el.type === "grid") {
-      const rows = el.rows || 1;
-      const cols = el.cols || 1;
-      if (rows > 1 || cols > 1) {
-        const { colPositions, rowPositions } = getGridPositions(el);
-        ctx.strokeStyle = "rgba(128, 128, 128, 0.4)";
-        ctx.lineWidth = 1;
-        for (const rowY of rowPositions) {
-          ctx.beginPath();
-          ctx.moveTo(el.bbox.x, rowY);
-          ctx.lineTo(el.bbox.x + el.bbox.width, rowY);
-          ctx.stroke();
-        }
-        for (const colX of colPositions) {
-          ctx.beginPath();
-          ctx.moveTo(colX, el.bbox.y);
-          ctx.lineTo(colX, el.bbox.y + el.bbox.height);
-          ctx.stroke();
-        }
-      }
-    }
   });
 
   const maskedBlob = await canvasToBlob(ctx.canvas, "image/png");
@@ -320,7 +300,7 @@ async function addExportedIcons(
   img: HTMLImageElement,
   elements: UIElement[]
 ): Promise<void> {
-  const exportableTypes = ["icon", "panel", "toolbar", "menubar"];
+  const exportableTypes = ["icon", "iconlist", "toolbar", "menubar"];
   const iconsToExport = elements.filter(
     (el) => exportableTypes.includes(el.type) && el.exportIcon
   );
@@ -331,57 +311,90 @@ async function addExportedIcons(
   if (!iconsFolder) return;
 
   for (const iconEl of iconsToExport) {
-    const rows = iconEl.rows || 1;
-    const cols = iconEl.cols || 1;
     const baseName = iconEl.text || iconEl.id;
 
-    if (rows > 1 || cols > 1) {
-      // Grid element - export individual cells
-      const { colBounds, rowBounds } = getGridPositions(iconEl);
+    // Handle iconlist with icons array (new format)
+    if ((iconEl.type === "iconlist" || iconEl.type === "toolbar" || iconEl.type === "menubar") && iconEl.icons && iconEl.icons.length > 0) {
+      const iconWidth = iconEl.iconWidth ?? 32;
+      const iconHeight = iconEl.iconHeight ?? 32;
 
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const srcX = colBounds[c];
-          const srcY = rowBounds[r];
-          const cellW = colBounds[c + 1] - colBounds[c];
-          const cellH = rowBounds[r + 1] - rowBounds[r];
+      for (let idx = 0; idx < iconEl.icons.length; idx++) {
+        const icon = iconEl.icons[idx];
+        // Calculate absolute position from center
+        const absX = iconEl.bbox.x + icon.centerX - iconWidth / 2;
+        const absY = iconEl.bbox.y + icon.centerY - iconHeight / 2;
 
-          const iconCanvas = document.createElement("canvas");
-          iconCanvas.width = Math.round(cellW);
-          iconCanvas.height = Math.round(cellH);
-          const iconCtx = iconCanvas.getContext("2d");
-          if (!iconCtx) continue;
+        const iconCanvas = document.createElement("canvas");
+        iconCanvas.width = iconWidth;
+        iconCanvas.height = iconHeight;
+        const iconCtx = iconCanvas.getContext("2d");
+        if (!iconCtx) continue;
 
-          iconCtx.drawImage(
-            img,
-            srcX, srcY, cellW, cellH,
-            0, 0, cellW, cellH
-          );
+        iconCtx.drawImage(
+          img,
+          absX, absY, iconWidth, iconHeight,
+          0, 0, iconWidth, iconHeight
+        );
 
-          const idx = r * cols + c + 1;
-          const iconBlob = await canvasToBlob(iconCanvas, "image/png");
-          if (iconBlob) {
-            iconsFolder.file(`${baseName}_${idx}.png`, iconBlob);
-          }
+        const iconName = icon.label || `icon_${idx + 1}`;
+        const iconBlob = await canvasToBlob(iconCanvas, "image/png");
+        if (iconBlob) {
+          iconsFolder.file(`${baseName}_${iconName}.png`, iconBlob);
         }
       }
     } else {
-      // Single icon - export as-is
-      const iconCanvas = document.createElement("canvas");
-      iconCanvas.width = iconEl.bbox.width;
-      iconCanvas.height = iconEl.bbox.height;
-      const iconCtx = iconCanvas.getContext("2d");
-      if (!iconCtx) continue;
+      // Handle grid-based icons (legacy format)
+      const rows = iconEl.rows || 1;
+      const cols = iconEl.cols || 1;
 
-      iconCtx.drawImage(
-        img,
-        iconEl.bbox.x, iconEl.bbox.y, iconEl.bbox.width, iconEl.bbox.height,
-        0, 0, iconEl.bbox.width, iconEl.bbox.height
-      );
+      if (rows > 1 || cols > 1) {
+        // Grid element - export individual cells
+        const { colBounds, rowBounds } = getGridPositions(iconEl);
 
-      const iconBlob = await canvasToBlob(iconCanvas, "image/png");
-      if (iconBlob) {
-        iconsFolder.file(`${baseName}.png`, iconBlob);
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const srcX = colBounds[c];
+            const srcY = rowBounds[r];
+            const cellW = colBounds[c + 1] - colBounds[c];
+            const cellH = rowBounds[r + 1] - rowBounds[r];
+
+            const iconCanvas = document.createElement("canvas");
+            iconCanvas.width = Math.round(cellW);
+            iconCanvas.height = Math.round(cellH);
+            const iconCtx = iconCanvas.getContext("2d");
+            if (!iconCtx) continue;
+
+            iconCtx.drawImage(
+              img,
+              srcX, srcY, cellW, cellH,
+              0, 0, cellW, cellH
+            );
+
+            const idx = r * cols + c + 1;
+            const iconBlob = await canvasToBlob(iconCanvas, "image/png");
+            if (iconBlob) {
+              iconsFolder.file(`${baseName}_${idx}.png`, iconBlob);
+            }
+          }
+        }
+      } else {
+        // Single icon - export as-is
+        const iconCanvas = document.createElement("canvas");
+        iconCanvas.width = iconEl.bbox.width;
+        iconCanvas.height = iconEl.bbox.height;
+        const iconCtx = iconCanvas.getContext("2d");
+        if (!iconCtx) continue;
+
+        iconCtx.drawImage(
+          img,
+          iconEl.bbox.x, iconEl.bbox.y, iconEl.bbox.width, iconEl.bbox.height,
+          0, 0, iconEl.bbox.width, iconEl.bbox.height
+        );
+
+        const iconBlob = await canvasToBlob(iconCanvas, "image/png");
+        if (iconBlob) {
+          iconsFolder.file(`${baseName}.png`, iconBlob);
+        }
       }
     }
   }
@@ -419,5 +432,31 @@ async function addOcrRegions(
       const name = el.text || el.id;
       ocrFolder.file(`${name}.png`, blob);
     }
+  }
+}
+
+async function addLoadingImages(
+  zip: JSZip,
+  elements: UIElement[]
+): Promise<void> {
+  const loadingElements = elements.filter(
+    (el) => el.type === "loading" && el.loadingImage
+  );
+
+  if (loadingElements.length === 0) return;
+
+  const loadingFolder = zip.folder("loading");
+  if (!loadingFolder) return;
+
+  for (const el of loadingElements) {
+    // Convert base64 data URL to blob
+    const dataUrl = el.loadingImage!;
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+
+    const name = el.text || el.id;
+    // Determine file extension from MIME type
+    const ext = blob.type.includes("gif") ? "gif" : "png";
+    loadingFolder.file(`${name}.${ext}`, blob);
   }
 }

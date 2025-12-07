@@ -97,10 +97,17 @@ export default function TaskList({
                     `}
                   >
                     <span className="text-zinc-500 text-xs w-4">{idx + 1}.</span>
-                    <span className="flex-1 truncate">
-                      {task.prompt || "(no prompt)"}
-                    </span>
-                    <span className="text-xs text-zinc-500">
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate">
+                        {task.prompt || "(no prompt)"}
+                      </div>
+                      {task.taskType && (
+                        <div className="text-[10px] text-cyan-400 truncate">
+                          {task.taskType}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs text-zinc-500 flex-shrink-0">
                       {getActionLabel(task, el)}
                     </span>
                   </li>
@@ -117,6 +124,19 @@ export default function TaskList({
           <h3 className="text-sm font-semibold mb-2">Edit Task</h3>
 
           <div className="space-y-2">
+            <div>
+              <label className="text-xs text-zinc-400">Task Type</label>
+              <input
+                type="text"
+                value={selectedTask.taskType ?? ""}
+                onChange={(e) =>
+                  onUpdateTask(selectedTask.id, { taskType: e.target.value || undefined })
+                }
+                placeholder="e.g., click_button_[label], scroll-grid-direction"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
+              />
+            </div>
+
             <div>
               <label className="text-xs text-zinc-400">Action</label>
               <select
