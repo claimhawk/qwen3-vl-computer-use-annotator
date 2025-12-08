@@ -30,7 +30,7 @@ export default function ElementList({
   const [selectedIconIdx, setSelectedIconIdx] = useState<number | null>(null);
   const selectedElement = elements.find((el) => el.id === selectedElementId);
 
-  const isListType = selectedElement?.type === "dropdown" || selectedElement?.type === "listbox";
+  const isListType = selectedElement?.type === "listbox";
   const isGridType = selectedElement?.type === "grid" || selectedElement?.type === "icon";
   const isIcon = selectedElement?.type === "icon";
   const isIconList = selectedElement?.type === "iconlist" || selectedElement?.type === "toolbar" || selectedElement?.type === "menubar";

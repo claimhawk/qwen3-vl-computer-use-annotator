@@ -36,7 +36,10 @@ const CHANDRA_URL = process.env.NEXT_PUBLIC_OCR_INFERENCE_URL || "https://claimh
 /**
  * Transcribe a single masked region using Chandra OCR.
  */
-export async function transcribeRegion(region: ClippedRegion): Promise<TranscriptionResult> {
+export async function transcribeRegion(
+  region: ClippedRegion,
+  signal?: AbortSignal
+): Promise<TranscriptionResult> {
   try {
     console.log(`[OCR] Sending request for ${region.elementId}, image size: ${region.imageBase64.length} chars`);
 
@@ -50,6 +53,7 @@ export async function transcribeRegion(region: ClippedRegion): Promise<Transcrip
         prompt_type: "ocr_layout",
         output_format: "markdown",
       }),
+      signal,
     });
 
     if (!response.ok) {

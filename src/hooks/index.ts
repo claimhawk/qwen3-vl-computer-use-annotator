@@ -16,3 +16,5 @@ export type { UseToolStateReturn } from "./useToolState";
 
 export { useViewState } from "./useViewState";
 export type { UseViewStateReturn } from "./useViewState";
+
+export { useDataTypes } from "./useDataTypes";

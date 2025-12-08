@@ -994,8 +994,8 @@ export default function AnnotationCanvas({
 
     if (drawMode === "grid" && (gridRows > 1 || gridCols > 1)) {
       // For icon/grid types, just create single element with rows/cols
-      // For listbox/dropdown, create container + child cells
-      const needsChildCells = currentType === "listbox" || currentType === "dropdown";
+      // For listbox, create container + child cells (dropdown options are generated)
+      const needsChildCells = currentType === "listbox";
 
       if (needsChildCells) {
         const containerId = `el_${Date.now()}`;

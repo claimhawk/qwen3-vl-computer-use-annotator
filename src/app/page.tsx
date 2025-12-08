@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, DragEvent } from "react";
 import AnnotationCanvas from "@/components/AnnotationCanvas";
 import ElementList from "@/components/ElementList";
 import TaskList from "@/components/TaskList";
+import DataTypesModal from "@/components/DataTypesModal";
 import {
   ElementType,
   ELEMENT_TYPES,
@@ -17,6 +18,7 @@ import {
   useImageState,
   useToolState,
   useViewState,
+  useDataTypes,
 } from "@/hooks";
 
 // Services
@@ -37,6 +39,7 @@ export default function Home() {
   const image = useImageState();
   const tools = useToolState();
   const view = useViewState();
+  const dataTypes = useDataTypes();
 
   // Drag-drop state (kept local as it's UI-only)
   const [isDragging, setIsDragging] = useState(false);
@@ -44,6 +47,7 @@ export default function Home() {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [isRunningOcr, setIsRunningOcr] = useState(false);
   const [cropRect, setCropRect] = useState<BBox | null>(null);
+  const [showDataTypesModal, setShowDataTypesModal] = useState(false);
 
   // Generator state
   const [generators, setGenerators] = useState<{ name: string; path: string; hasAnnotations: boolean }[]>([]);
@@ -272,6 +276,7 @@ export default function Home() {
     setExportStatus("Preparing...");
 
     try {
+      const exportedDataTypes = dataTypes.exportJson();
       const zipBlob = await createExportZip(
         image.imageUrl,
         {
@@ -280,6 +285,7 @@ export default function Home() {
           imagePath: image.imagePath,
           elements: annotation.elements,
           tasks: annotation.tasks,
+          dataTypes: Object.keys(exportedDataTypes).length > 0 ? exportedDataTypes : undefined,
         },
         (status) => setExportStatus(status)
       );
@@ -324,7 +330,7 @@ export default function Home() {
       setIsExporting(false);
       setExportStatus(null);
     }
-  }, [image, annotation, selectedGenerator]);
+  }, [image, annotation, selectedGenerator, dataTypes]);
 
   // Handle import from file
   const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -356,48 +362,8 @@ export default function Home() {
     }
   }, [image, annotation]);
 
-  // Handle import from selected generator
-  const handleImportFromGenerator = useCallback(async () => {
-    if (!selectedGenerator) return;
-
-    try {
-      const res = await fetch(`/api/generators/load?generator=${encodeURIComponent(selectedGenerator)}`);
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to load from generator");
-      }
-
-      const data = await res.json();
-      const loadedAnnotation = data.annotation;
-
-      image.setScreenName(loadedAnnotation.screenName);
-
-      if (data.imageDataUrl) {
-        image.setImageData(
-          data.imageDataUrl,
-          [...loadedAnnotation.imageSize] as [number, number],
-          loadedAnnotation.imagePath || ""
-        );
-      }
-
-      annotation.loadAnnotation(loadedAnnotation.elements, loadedAnnotation.tasks || []);
-
-      // Mark as saved state
-      const savedState = JSON.stringify({
-        elements: loadedAnnotation.elements,
-        tasks: loadedAnnotation.tasks || [],
-        screenName: loadedAnnotation.screenName,
-      });
-      setLastSavedState(savedState);
-      setHasUnsavedChanges(false);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to load from generator");
-      console.error(err);
-    }
-  }, [selectedGenerator, image, annotation]);
-
-  // Handle generator change with unsaved changes warning
-  const handleGeneratorChange = useCallback((newGenerator: string) => {
+  // Handle generator change with unsaved changes warning and auto-load
+  const handleGeneratorChange = useCallback(async (newGenerator: string) => {
     if (hasUnsavedChanges) {
       const confirmed = window.confirm(
         "You have unsaved changes. Discard changes and switch generator?"
@@ -407,7 +373,52 @@ export default function Home() {
     setSelectedGenerator(newGenerator);
     setHasUnsavedChanges(false);
     setLastSavedState("");
-  }, [hasUnsavedChanges]);
+
+    // Auto-load if generator has annotations
+    if (newGenerator) {
+      const gen = generators.find(g => g.name === newGenerator);
+      if (gen?.hasAnnotations) {
+        try {
+          const res = await fetch(`/api/generators/load?generator=${encodeURIComponent(newGenerator)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const loadedAnnotation = data.annotation;
+            console.log("[LOAD] loadedAnnotation:", loadedAnnotation);
+            console.log("[LOAD] loadedAnnotation.dataTypes:", loadedAnnotation.dataTypes);
+
+            image.setScreenName(loadedAnnotation.screenName);
+
+            if (data.imageDataUrl) {
+              image.setImageData(
+                data.imageDataUrl,
+                [...loadedAnnotation.imageSize] as [number, number],
+                loadedAnnotation.imagePath || ""
+              );
+            }
+
+            annotation.loadAnnotation(loadedAnnotation.elements, loadedAnnotation.tasks || []);
+
+            // Load data types if present
+            if (loadedAnnotation.dataTypes) {
+              dataTypes.loadDataTypes(loadedAnnotation.dataTypes);
+            } else {
+              dataTypes.clearAll();
+            }
+
+            // Mark as saved state
+            const savedState = JSON.stringify({
+              elements: loadedAnnotation.elements,
+              tasks: loadedAnnotation.tasks || [],
+              screenName: loadedAnnotation.screenName,
+            });
+            setLastSavedState(savedState);
+          }
+        } catch (err) {
+          console.error("Failed to auto-load generator:", err);
+        }
+      }
+    }
+  }, [hasUnsavedChanges, generators, image, annotation, dataTypes]);
 
   // Save to generator config folder (annotated.zip + annotation.json)
   const saveToConfig = useCallback(async () => {
@@ -430,13 +441,17 @@ export default function Home() {
         (status) => setExportStatus(status)
       );
 
-      // Create annotation JSON
+      // Create annotation JSON (include data types if any)
+      const exportedDataTypes = dataTypes.exportJson();
+      console.log("[SAVE] dataTypes.types:", dataTypes.types);
+      console.log("[SAVE] exportedDataTypes:", exportedDataTypes);
       const annotationData = JSON.stringify({
         screenName: image.screenName,
         imageSize: image.imageSize,
         imagePath: image.imagePath,
         elements: annotation.elements,
         tasks: annotation.tasks,
+        ...(Object.keys(exportedDataTypes).length > 0 && { dataTypes: exportedDataTypes }),
       }, null, 2);
 
       setExportStatus("Saving to config...");
@@ -481,7 +496,7 @@ export default function Home() {
       setIsExporting(false);
       setExportStatus(null);
     }
-  }, [selectedGenerator, image, annotation]);
+  }, [selectedGenerator, image, annotation, dataTypes]);
 
   // Handle grid row/col changes that also update selected element
   // Preserves existing row/col positions when adding/removing
@@ -602,26 +617,16 @@ export default function Home() {
             </select>
           </div>
 
-          {/* Import button - from generator or file */}
-          {selectedGenerator && generators.find(g => g.name === selectedGenerator)?.hasAnnotations ? (
-            <button
-              onClick={handleImportFromGenerator}
-              className="bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded text-sm"
-              title={`Load annotations from ${selectedGenerator}`}
-            >
-              Load
-            </button>
-          ) : (
-            <label className="relative cursor-pointer bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded text-sm">
-              Import
-              <input
-                type="file"
-                accept=".json,.zip"
-                onChange={handleImportFile}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-              />
-            </label>
-          )}
+          {/* Import from file */}
+          <label className="relative cursor-pointer bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded text-sm">
+            Import
+            <input
+              type="file"
+              accept=".json,.zip"
+              onChange={handleImportFile}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+            />
+          </label>
 
           {/* Save to config button (disk icon) */}
           {selectedGenerator && (
@@ -653,6 +658,14 @@ export default function Home() {
             } disabled:bg-zinc-600 disabled:cursor-not-allowed disabled:animate-none`}
           >
             {isRunningOcr ? "OCR..." : "OCR"}
+          </button>
+
+          <button
+            onClick={() => setShowDataTypesModal(true)}
+            className="bg-purple-600 hover:bg-purple-700 px-3 py-1.5 rounded text-sm font-medium"
+            title="Extract data types from images"
+          >
+            Data Types
           </button>
 
           <button
@@ -959,6 +972,13 @@ export default function Home() {
           )}
         </aside>
       </div>
+
+      {/* Data Types Modal */}
+      <DataTypesModal
+        isOpen={showDataTypesModal}
+        onClose={() => setShowDataTypesModal(false)}
+        dataTypes={dataTypes}
+      />
     </div>
   );
 }

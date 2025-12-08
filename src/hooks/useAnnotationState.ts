@@ -13,6 +13,8 @@ const SCROLL_TASK_PREFIX = "_scroll_";
 const SELECT_TASK_PREFIX = "_select_";
 const CLICK_TASK_PREFIX = "_click_";
 const ICON_TASK_PREFIX = "_icon_";
+const DROPDOWN_OPEN_TASK_PREFIX = "_dropdown_open_";
+const DROPDOWN_SELECT_TASK_PREFIX = "_dropdown_select_";
 
 /**
  * Generate scroll tasks for a grid element.
@@ -127,6 +129,32 @@ function generateWaitTask(element: UIElement): Task {
   };
 }
 
+/**
+ * Generate tasks for a dropdown element.
+ * Creates:
+ * - "Click the [dropdownname] to open" (open task)
+ * - "Select the [n]th item labeled \"[optionvalue]\" from the [dropdownname]" (selection template task)
+ */
+function generateDropdownTasks(element: UIElement): Task[] {
+  const name = element.text || "dropdown";
+  return [
+    {
+      id: `${element.id}${DROPDOWN_OPEN_TASK_PREFIX}`,
+      prompt: `Click the ${name} to open`,
+      taskType: `click_dropdown_${name}`,
+      targetElementId: element.id,
+      action: "left_click" as TaskAction,
+    },
+    {
+      id: `${element.id}${DROPDOWN_SELECT_TASK_PREFIX}`,
+      prompt: `Select the [n]th item labeled "[optionvalue]" from the ${name}`,
+      taskType: `select_dropdown_${name}`,
+      targetElementId: element.id,
+      action: "left_click" as TaskAction,
+    },
+  ];
+}
+
 // Element types that automatically get click tasks
 const AUTO_CLICK_TYPES = ["button", "checkbox", "radio", "tab"];
 
@@ -175,6 +203,9 @@ export function useAnnotationState(): UseAnnotationStateReturn {
     } else if (AUTO_WAIT_TYPES.includes(element.type)) {
       const waitTask = generateWaitTask(element);
       setTasks((prev) => [...prev, waitTask]);
+    } else if (element.type === "dropdown") {
+      const dropdownTasks = generateDropdownTasks(element);
+      setTasks((prev) => [...prev, ...dropdownTasks]);
     }
   }, []);
 
@@ -200,6 +231,23 @@ export function useAnnotationState(): UseAnnotationStateReturn {
             )
           );
         }
+        // Update dropdown task prompts when dropdown label changes
+        if (element && element.type === "dropdown") {
+          const name = updates.text || "dropdown";
+          const openTaskId = `${id}${DROPDOWN_OPEN_TASK_PREFIX}`;
+          const selectTaskId = `${id}${DROPDOWN_SELECT_TASK_PREFIX}`;
+          setTasks((prevTasks) =>
+            prevTasks.map((t) => {
+              if (t.id === openTaskId) {
+                return { ...t, prompt: `Click the ${name} to open`, taskType: `click_dropdown_${name}` };
+              }
+              if (t.id === selectTaskId) {
+                return { ...t, prompt: `Select the [n]th item labeled "[optionvalue]" from the ${name}`, taskType: `select_dropdown_${name}` };
+              }
+              return t;
+            })
+          );
+        }
       }
 
       return updated;
@@ -214,7 +262,9 @@ export function useAnnotationState(): UseAnnotationStateReturn {
     setTasks((prev) => prev.filter((t) =>
       !t.id.startsWith(id + SCROLL_TASK_PREFIX) &&
       !t.id.startsWith(id + SELECT_TASK_PREFIX) &&
-      !t.id.startsWith(id + CLICK_TASK_PREFIX)
+      !t.id.startsWith(id + CLICK_TASK_PREFIX) &&
+      !t.id.startsWith(id + DROPDOWN_OPEN_TASK_PREFIX) &&
+      !t.id.startsWith(id + DROPDOWN_SELECT_TASK_PREFIX)
     ));
   }, []);
 
@@ -228,7 +278,9 @@ export function useAnnotationState(): UseAnnotationStateReturn {
       for (const id of ids) {
         if (t.id.startsWith(id + SCROLL_TASK_PREFIX) ||
             t.id.startsWith(id + SELECT_TASK_PREFIX) ||
-            t.id.startsWith(id + CLICK_TASK_PREFIX)) {
+            t.id.startsWith(id + CLICK_TASK_PREFIX) ||
+            t.id.startsWith(id + DROPDOWN_OPEN_TASK_PREFIX) ||
+            t.id.startsWith(id + DROPDOWN_SELECT_TASK_PREFIX)) {
           return false;
         }
       }

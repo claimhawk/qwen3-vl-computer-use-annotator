@@ -15,6 +15,7 @@ export interface ExportOptions {
   imagePath: string;
   elements: UIElement[];
   tasks: Task[];
+  dataTypes?: Record<string, { attributes: string[]; examples: Record<string, string>[] }>;
 }
 
 export interface LoadedAnnotation {
@@ -41,7 +42,7 @@ export async function createExportZip(
   options: ExportOptions,
   onProgress?: (step: string) => void
 ): Promise<Blob> {
-  const { screenName, imageSize, imagePath, elements, tasks } = options;
+  const { screenName, imageSize, imagePath, elements, tasks, dataTypes } = options;
 
   const zip = new JSZip();
 
@@ -61,6 +62,7 @@ export async function createExportZip(
       sourceApp: "",
       screenType: "",
     },
+    ...(dataTypes && Object.keys(dataTypes).length > 0 && { dataTypes }),
   };
   zip.file("annotation.json", JSON.stringify(annotation, null, 2));
 

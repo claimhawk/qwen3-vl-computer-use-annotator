@@ -131,6 +131,11 @@ export interface AnnotationMetadata {
   readonly notes?: string;
 }
 
+export interface DataTypeDefinition {
+  readonly attributes: readonly string[];
+  readonly examples: readonly Record<string, string>[];
+}
+
 export interface Annotation {
   readonly screenName: string;
   readonly imageSize: readonly [number, number];
@@ -138,6 +143,7 @@ export interface Annotation {
   readonly elements: readonly UIElement[];
   readonly tasks: readonly Task[];
   readonly metadata?: AnnotationMetadata;
+  readonly dataTypes?: Record<string, DataTypeDefinition>;
 }
 
 export const ELEMENT_TYPES: readonly { readonly value: ElementType; readonly label: string; readonly color: string }[] = [
