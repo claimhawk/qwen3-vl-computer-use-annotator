@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { UIElement, ElementType, ELEMENT_TYPES, getElementColor, HAlign, VAlign, IconDefinition } from "@/types/annotation";
+import { MASKABLE_TYPES } from "@/utils";
 
 interface Props {
   elements: UIElement[];
@@ -36,7 +37,7 @@ export default function ElementList({
   const isIconList = selectedElement?.type === "iconlist" || selectedElement?.type === "toolbar" || selectedElement?.type === "menubar";
   const isText = selectedElement?.type === "text";
   const isLoading = selectedElement?.type === "loading";
-  const isMaskable = selectedElement && ["textinput", "dropdown", "listbox", "grid", "icon", "iconlist", "toolbar", "menubar", "text", "mask"].includes(selectedElement.type);
+  const isMaskable = selectedElement && (MASKABLE_TYPES as readonly string[]).includes(selectedElement.type);
 
   // Get iconlist elements for parent selection
   const iconListElements = elements.filter((el) => el.type === "iconlist" || el.type === "toolbar" || el.type === "menubar");
