@@ -16,3 +16,17 @@
 | 2025-12-06 | Grid Selection | Add grid cell selection, preserve row/col positions on resize - selectableRow, selectableCell flags, grid task generation, custom row/col sizing |
 | 2025-12-07 | Data Types | Add Data Types Extractor and dropdown task generation - DataTypeDefinition interface for structured data, dropdown open/select task templates |
 | 2025-12-08 | Text Input Tasks | Add text input task template with click_type action - Single task generates 2 tool calls (click + type), kebab-case taskTypes, grid prior states |
+
+---
+
+## AI-Assisted Development
+
+Built by 1 developer + AI (Claude Code). 14 commits in 12 days.
+
+### Cost Comparison
+
+- **Traditional:** 1 frontend developer @ $150k/yr for 3-4 weeks = **$9-12k**
+- **Actual:** 1 developer + AI, 12 days = **$1-2k**
+- **Savings: ~85%**
+
+Full annotation tool with OCR integration, CUDAG export, and task generation.

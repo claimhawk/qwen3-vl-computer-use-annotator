@@ -67,3 +67,15 @@
 
 ### Text Input Tasks (Dec 8)
 - `286f958` - Add text input task template with click_type action
+
+---
+
+## AI-Assisted Development
+
+All implementation work done by 1 developer + AI (Claude Code).
+
+### Cost Comparison
+
+- **Traditional:** 1 frontend developer @ $150k/yr for 2-3 weeks = **$6-9k**
+- **Actual:** 1 developer + AI = **$1-2k**
+- **Savings: ~80%**
