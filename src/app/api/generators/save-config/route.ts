@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import JSZip from "jszip";
 
 // Path to generators directory
 const GENERATORS_PATH = path.resolve(process.cwd(), "../generators");
@@ -48,15 +49,36 @@ export async function POST(request: NextRequest) {
     const configJsonPath = path.join(configPath, "annotation.json");
     await fs.writeFile(configJsonPath, annotationJson, "utf-8");
 
-    // ALSO save to assets/annotations/annotation.json (this is where load reads from first!)
+    // Extract ZIP and save all files to assets/annotations/
     const assetsAnnotationsPath = path.join(generatorPath, "assets", "annotations");
     try {
-      await fs.access(assetsAnnotationsPath);
+      // Create directory if it doesn't exist
+      await fs.mkdir(assetsAnnotationsPath, { recursive: true });
+
+      // Extract ZIP contents
+      const zip = await JSZip.loadAsync(zipBuffer);
+
+      // Save each file from the ZIP
+      const filePromises: Promise<void>[] = [];
+      zip.forEach((relativePath, file) => {
+        if (!file.dir) {
+          const promise = file.async("nodebuffer").then(async (content) => {
+            const filePath = path.join(assetsAnnotationsPath, relativePath);
+            await fs.writeFile(filePath, content);
+          });
+          filePromises.push(promise);
+        }
+      });
+
+      await Promise.all(filePromises);
+
+      // Also save annotation.json separately (it's in the ZIP but we have the latest version)
       const assetsJsonPath = path.join(assetsAnnotationsPath, "annotation.json");
       await fs.writeFile(assetsJsonPath, annotationJson, "utf-8");
-      console.log("[SAVE-CONFIG] Wrote to assets/annotations/annotation.json");
-    } catch {
-      // assets/annotations folder doesn't exist, that's fine
+
+      console.log("[SAVE-CONFIG] Extracted files to assets/annotations/");
+    } catch (err) {
+      console.error("[SAVE-CONFIG] Failed to extract to assets/annotations:", err);
     }
 
     const parsed = JSON.parse(annotationJson);
@@ -65,7 +87,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       generator: generatorName,
-      files: ["annotated.zip", "annotation.json"],
       path: configPath,
     });
   } catch (error) {
