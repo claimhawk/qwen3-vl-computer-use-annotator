@@ -71,6 +71,8 @@ export interface UIElement {
   readonly selectableRow?: boolean;   // For grids: generate row selection tasks
   readonly selectableCell?: boolean;  // For grids: generate cell selection tasks
   readonly showGridLines?: boolean;   // For grids: draw grid lines on masked export
+  readonly hideGridLines?: boolean;   // For grids: hide grid lines in live editor view
+  readonly cellLabels?: readonly string[];  // For icon grids: label for each cell (indexed by row*cols+col)
   readonly ocr?: boolean;             // For grids/masks: run OCR and include transcription in export
   readonly transcription?: string;    // OCR result stored after export
   readonly loadingImage?: string;     // For loading: base64 data URL of spinner/loading image

@@ -273,10 +273,10 @@ export default function AnnotationCanvas({
         ctx.fillStyle = color + "20";
         ctx.fillRect(x, y, w, h);
 
-        // Draw division lines if rows/cols are set
+        // Draw division lines if rows/cols are set and hideGridLines is not true
         const rows = el.rows || 1;
         const cols = el.cols || 1;
-        if (rows > 1 || cols > 1) {
+        if ((rows > 1 || cols > 1) && el.hideGridLines !== true) {
           const { colPositions, rowPositions, colBounds, rowBounds } = getGridPositions(el);
 
           ctx.strokeStyle = color;

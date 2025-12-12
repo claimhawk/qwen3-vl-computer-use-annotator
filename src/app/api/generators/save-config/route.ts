@@ -64,6 +64,9 @@ export async function POST(request: NextRequest) {
         if (!file.dir) {
           const promise = file.async("nodebuffer").then(async (content) => {
             const filePath = path.join(assetsAnnotationsPath, relativePath);
+            // Create parent directory if needed (for nested paths like icons/icon_1.png)
+            const dir = path.dirname(filePath);
+            await fs.mkdir(dir, { recursive: true });
             await fs.writeFile(filePath, content);
           });
           filePromises.push(promise);

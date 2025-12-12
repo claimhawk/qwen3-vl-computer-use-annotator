@@ -371,8 +371,31 @@ export default function ElementList({
                     }
                     className="w-4 h-4 rounded"
                   />
-                  <span className="text-xs text-zinc-400">Export to ZIP</span>
+                  <span className="text-xs text-zinc-400">Extract Images</span>
                 </label>
+
+                {/* Cell labels for icon grids */}
+                {(selectedElement.rows || 1) * (selectedElement.cols || 1) > 1 && (
+                  <div className="mt-3">
+                    <label className="text-xs text-zinc-400 block mb-2">Icon Labels</label>
+                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.min(selectedElement.cols || 1, 4)}, 1fr)` }}>
+                      {Array.from({ length: (selectedElement.rows || 1) * (selectedElement.cols || 1) }).map((_, idx) => (
+                        <input
+                          key={idx}
+                          type="text"
+                          placeholder={`${idx + 1}`}
+                          value={selectedElement.cellLabels?.[idx] ?? ""}
+                          onChange={(e) => {
+                            const newLabels = [...(selectedElement.cellLabels || [])];
+                            newLabels[idx] = e.target.value;
+                            onUpdateElement(selectedElement.id, { cellLabels: newLabels });
+                          }}
+                          className="bg-zinc-700 border border-zinc-600 rounded px-1 py-0.5 text-xs w-full"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -424,6 +447,17 @@ export default function ElementList({
             {/* Layout for iconlists */}
             {isIconList && (
               <div className="mt-2 pt-2 border-t border-zinc-600">
+                <label className="flex items-center gap-2 cursor-pointer mb-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedElement.exportIcon ?? false}
+                    onChange={(e) =>
+                      onUpdateElement(selectedElement.id, { exportIcon: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-xs text-zinc-400">Extract Images</span>
+                </label>
                 <label className="text-xs text-zinc-400 block mb-2">Icon Layout</label>
                 <div className="flex gap-3">
                   <label className="flex items-center gap-1.5 cursor-pointer">
@@ -570,7 +604,9 @@ export default function ElementList({
                         value={selectedElement.icons[selectedIconIdx].iconFileId ?? ""}
                         onChange={(e) => {
                           const newIcons = [...selectedElement.icons!];
-                          newIcons[selectedIconIdx] = { ...newIcons[selectedIconIdx], iconFileId: e.target.value || undefined };
+                          // Convert spaces and underscores to hyphens
+                          const sanitized = e.target.value.replace(/[\s_]+/g, "-").toLowerCase();
+                          newIcons[selectedIconIdx] = { ...newIcons[selectedIconIdx], iconFileId: sanitized || undefined };
                           onUpdateElement(selectedElement.id, { icons: newIcons });
                         }}
                         placeholder="e.g., od, edge, chrome"
@@ -819,7 +855,19 @@ export default function ElementList({
                       className="w-4 h-4 rounded"
                     />
                     <span className="text-xs text-zinc-300">Show Grid Lines</span>
-                    <span className="text-xs text-zinc-500">(on masked export)</span>
+                    <span className="text-xs text-zinc-500">(export)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!(selectedElement.hideGridLines ?? false)}
+                      onChange={(e) =>
+                        onUpdateElement(selectedElement.id, { hideGridLines: !e.target.checked })
+                      }
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-zinc-300">Show Grid Lines</span>
+                    <span className="text-xs text-zinc-500">(editor)</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input

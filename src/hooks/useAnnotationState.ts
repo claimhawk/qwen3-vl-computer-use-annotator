@@ -255,15 +255,17 @@ export function useAnnotationState(): UseAnnotationStateReturn {
     setElements((prev) => {
       const updated = prev.map((el) => (el.id === id ? { ...el, ...updates } : el));
 
-      // If text changed on a clickable element, update the auto-generated task prompt
+      // If text changed on a clickable element, update the auto-generated task prompt and taskType
       if (updates.text !== undefined) {
         const element = updated.find((el) => el.id === id);
         if (element && AUTO_CLICK_TYPES.includes(element.type)) {
           const taskId = `${id}${CLICK_TASK_PREFIX}`;
-          const newPrompt = `Click the ${updates.text || "button"} button`;
+          const label = updates.text || "button";
+          const newPrompt = `Click the ${label} ${element.type}`;
+          const newTaskType = `click-${toKebabCase(element.type)}-${toKebabCase(label)}`;
           setTasks((prevTasks) =>
             prevTasks.map((t) =>
-              t.id === taskId ? { ...t, prompt: newPrompt } : t
+              t.id === taskId ? { ...t, prompt: newPrompt, taskType: newTaskType } : t
             )
           );
         }

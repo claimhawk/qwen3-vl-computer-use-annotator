@@ -233,6 +233,32 @@ async function addMaskedImage(
     // Fill the region with sampled color
     ctx.fillStyle = el.maskColor;
     ctx.fillRect(el.bbox.x, el.bbox.y, el.bbox.width, el.bbox.height);
+
+    // Draw grid lines if showGridLines is enabled
+    if (el.showGridLines) {
+      const rows = el.rows || 1;
+      const cols = el.cols || 1;
+      if (rows > 1 || cols > 1) {
+        const { colPositions, rowPositions } = getGridPositions(el);
+        ctx.strokeStyle = el.maskColor; // Use same color as fill (creates subtle lines)
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        // Draw slightly darker lines
+        ctx.strokeStyle = "rgba(0,0,0,0.2)";
+        for (const rowY of rowPositions) {
+          ctx.beginPath();
+          ctx.moveTo(el.bbox.x, rowY);
+          ctx.lineTo(el.bbox.x + el.bbox.width, rowY);
+          ctx.stroke();
+        }
+        for (const colX of colPositions) {
+          ctx.beginPath();
+          ctx.moveTo(colX, el.bbox.y);
+          ctx.lineTo(colX, el.bbox.y + el.bbox.height);
+          ctx.stroke();
+        }
+      }
+    }
   });
 
   const maskedBlob = await canvasToBlob(ctx.canvas, "image/png");
@@ -312,6 +338,27 @@ async function addExportedIcons(
   const iconsFolder = zip.folder("icons");
   if (!iconsFolder) return;
 
+  // Create a masked version of the image to extract icons from
+  const maskedCanvas = document.createElement("canvas");
+  maskedCanvas.width = img.width;
+  maskedCanvas.height = img.height;
+  const maskedCtx = maskedCanvas.getContext("2d");
+  if (!maskedCtx) return;
+
+  // Draw original image
+  maskedCtx.drawImage(img, 0, 0);
+
+  // Apply masks from "mask" type elements only (not icons or other types)
+  elements.forEach((el) => {
+    // Only apply mask elements
+    if (el.type !== "mask") return;
+    if (el.mask === false) return;
+    if (!el.maskColor) return;
+
+    maskedCtx.fillStyle = el.maskColor;
+    maskedCtx.fillRect(el.bbox.x, el.bbox.y, el.bbox.width, el.bbox.height);
+  });
+
   for (const iconEl of iconsToExport) {
     const baseName = iconEl.text || iconEl.id;
 
@@ -332,13 +379,14 @@ async function addExportedIcons(
         const iconCtx = iconCanvas.getContext("2d");
         if (!iconCtx) continue;
 
+        // Extract from masked image
         iconCtx.drawImage(
-          img,
+          maskedCanvas,
           absX, absY, iconWidth, iconHeight,
           0, 0, iconWidth, iconHeight
         );
 
-        const iconName = icon.label || `icon_${idx + 1}`;
+        const iconName = icon.iconFileId || icon.label || `icon_${idx + 1}`;
         const iconBlob = await canvasToBlob(iconCanvas, "image/png");
         if (iconBlob) {
           iconsFolder.file(`${baseName}_${iconName}.png`, iconBlob);
@@ -366,21 +414,24 @@ async function addExportedIcons(
             const iconCtx = iconCanvas.getContext("2d");
             if (!iconCtx) continue;
 
+            // Extract from masked image
             iconCtx.drawImage(
-              img,
+              maskedCanvas,
               srcX, srcY, cellW, cellH,
               0, 0, cellW, cellH
             );
 
-            const idx = r * cols + c + 1;
+            const idx = r * cols + c;
+            const cellLabel = iconEl.cellLabels?.[idx];
+            const iconName = cellLabel || String(idx + 1);
             const iconBlob = await canvasToBlob(iconCanvas, "image/png");
             if (iconBlob) {
-              iconsFolder.file(`${baseName}_${idx}.png`, iconBlob);
+              iconsFolder.file(`${baseName}_${iconName}.png`, iconBlob);
             }
           }
         }
       } else {
-        // Single icon - export as-is
+        // Single icon - export as-is from masked image
         const iconCanvas = document.createElement("canvas");
         iconCanvas.width = iconEl.bbox.width;
         iconCanvas.height = iconEl.bbox.height;
@@ -388,7 +439,7 @@ async function addExportedIcons(
         if (!iconCtx) continue;
 
         iconCtx.drawImage(
-          img,
+          maskedCanvas,
           iconEl.bbox.x, iconEl.bbox.y, iconEl.bbox.width, iconEl.bbox.height,
           0, 0, iconEl.bbox.width, iconEl.bbox.height
         );
