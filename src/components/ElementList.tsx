@@ -10,6 +10,7 @@ interface Props {
   onSelectElement: (id: string | null) => void;
   onUpdateElement: (id: string, updates: Partial<UIElement>) => void;
   onDeleteElement: (id: string) => void;
+  onClearAll: () => void;
   onStartColorSampling: () => void;
   onUpdateGridTasks?: (element: UIElement) => void;
   isIconPlacementMode?: boolean;
@@ -22,6 +23,7 @@ export default function ElementList({
   onSelectElement,
   onUpdateElement,
   onDeleteElement,
+  onClearAll,
   onStartColorSampling,
   onUpdateGridTasks,
   isIconPlacementMode,
@@ -71,6 +73,23 @@ export default function ElementList({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Header with Clear All */}
+      {elements.length > 0 && (
+        <div className="flex items-center justify-between px-2 py-1 border-b border-zinc-700">
+          <span className="text-xs text-zinc-400">{elements.length} element{elements.length !== 1 ? 's' : ''}</span>
+          <button
+            onClick={() => {
+              if (window.confirm('Delete all elements?')) {
+                onClearAll();
+              }
+            }}
+            className="text-xs text-red-400 hover:text-red-300"
+          >
+            Clear All
+          </button>
+        </div>
+      )}
+
       {/* Element list - scrollable */}
       <div className="flex-1 overflow-y-auto">
         <div className="p-2">
@@ -722,7 +741,7 @@ export default function ElementList({
                             onUpdateElement(selectedElement.id, { cols: undefined, colWidths: undefined });
                           } else {
                             const num = parseInt(val);
-                            if (!isNaN(num) && num >= 1 && num <= 20) {
+                            if (!isNaN(num) && num >= 1 && num <= 50) {
                               const oldCols = selectedElement.cols || 1;
                               // Initialize widths if not set
                               const oldWidths = selectedElement.colWidths && selectedElement.colWidths.length === oldCols

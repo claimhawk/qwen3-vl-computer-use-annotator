@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, DragEvent } from "react";
+import { useState, useCallback, useEffect, useRef, DragEvent } from "react";
 import AnnotationCanvas from "@/components/AnnotationCanvas";
 import ElementList from "@/components/ElementList";
 import TaskList from "@/components/TaskList";
 import DataTypesModal from "@/components/DataTypesModal";
+import NewGeneratorModal from "@/components/NewGeneratorModal";
 import {
   ElementType,
   ELEMENT_TYPES,
@@ -48,43 +49,34 @@ export default function Home() {
   const [isRunningOcr, setIsRunningOcr] = useState(false);
   const [cropRect, setCropRect] = useState<BBox | null>(null);
   const [showDataTypesModal, setShowDataTypesModal] = useState(false);
+  const [showNewGeneratorModal, setShowNewGeneratorModal] = useState(false);
 
   // Generator state
   const [generators, setGenerators] = useState<{ name: string; path: string; hasAnnotations: boolean }[]>([]);
   const [selectedGenerator, setSelectedGenerator] = useState<string>("");
   const [loadingGenerators, setLoadingGenerators] = useState(true);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [lastSavedState, setLastSavedState] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  const isLoadingData = useRef(false);
 
-  // Track unsaved changes by comparing current state to last saved state
-  useEffect(() => {
-    const currentState = JSON.stringify({
-      elements: annotation.elements,
-      tasks: annotation.tasks,
-      screenName: image.screenName,
-    });
-    if (lastSavedState && currentState !== lastSavedState) {
-      setHasUnsavedChanges(true);
+  // Fetch generators function (reusable)
+  const fetchGenerators = useCallback(async () => {
+    try {
+      const res = await fetch("/api/generators");
+      if (res.ok) {
+        const data = await res.json();
+        setGenerators(data.generators || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch generators:", err);
+    } finally {
+      setLoadingGenerators(false);
     }
-  }, [annotation.elements, annotation.tasks, image.screenName, lastSavedState]);
+  }, []);
 
   // Fetch generators on mount
   useEffect(() => {
-    async function fetchGenerators() {
-      try {
-        const res = await fetch("/api/generators");
-        if (res.ok) {
-          const data = await res.json();
-          setGenerators(data.generators || []);
-        }
-      } catch (err) {
-        console.error("Failed to fetch generators:", err);
-      } finally {
-        setLoadingGenerators(false);
-      }
-    }
     fetchGenerators();
-  }, []);
+  }, [fetchGenerators]);
 
   // Check if there are any elements with OCR checked
   const hasOcrElements = annotation.elements.some((el) => el.ocr === true);
@@ -267,71 +259,6 @@ export default function Home() {
     annotation.ensureIconListTask(elementId);
   }, [annotation]);
 
-
-  // Handle download ZIP (and optionally save to generator)
-  const downloadZip = useCallback(async () => {
-    if (!image.imageSize || !image.imageUrl) return;
-
-    setIsExporting(true);
-    setExportStatus("Preparing...");
-
-    try {
-      const exportedDataTypes = dataTypes.exportJson();
-      const zipBlob = await createExportZip(
-        image.imageUrl,
-        {
-          screenName: image.screenName,
-          imageSize: image.imageSize,
-          imagePath: image.imagePath,
-          elements: annotation.elements,
-          tasks: annotation.tasks,
-          dataTypes: Object.keys(exportedDataTypes).length > 0 ? exportedDataTypes : undefined,
-        },
-        (status) => setExportStatus(status)
-      );
-
-      // If a generator is selected, save to it via API
-      if (selectedGenerator) {
-        setExportStatus("Saving to generator...");
-        const formData = new FormData();
-        formData.append("generator", selectedGenerator);
-        formData.append("zip", zipBlob, `${image.screenName}.zip`);
-
-        const res = await fetch("/api/generators/save", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!res.ok) {
-          const error = await res.json();
-          throw new Error(error.error || "Failed to save to generator");
-        }
-
-        const result = await res.json();
-        console.log("Saved to generator:", result);
-        setExportStatus("Saved!");
-
-        // Brief delay to show success message
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      } else {
-        // No generator selected, just download
-        setExportStatus("Downloading...");
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${image.screenName}.zip`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create ZIP");
-      console.error(err);
-    } finally {
-      setIsExporting(false);
-      setExportStatus(null);
-    }
-  }, [image, annotation, selectedGenerator, dataTypes]);
-
   // Handle import from file
   const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -364,15 +291,8 @@ export default function Home() {
 
   // Handle generator change with unsaved changes warning and auto-load
   const handleGeneratorChange = useCallback(async (newGenerator: string) => {
-    if (hasUnsavedChanges) {
-      const confirmed = window.confirm(
-        "You have unsaved changes. Discard changes and switch generator?"
-      );
-      if (!confirmed) return;
-    }
+    isLoadingData.current = true;
     setSelectedGenerator(newGenerator);
-    setHasUnsavedChanges(false);
-    setLastSavedState("");
 
     // Auto-load if generator has annotations
     if (newGenerator) {
@@ -383,8 +303,6 @@ export default function Home() {
           if (res.ok) {
             const data = await res.json();
             const loadedAnnotation = data.annotation;
-            console.log("[LOAD] loadedAnnotation:", loadedAnnotation);
-            console.log("[LOAD] loadedAnnotation.dataTypes:", loadedAnnotation.dataTypes);
 
             image.setScreenName(loadedAnnotation.screenName);
 
@@ -404,21 +322,18 @@ export default function Home() {
             } else {
               dataTypes.clearAll();
             }
-
-            // Mark as saved state
-            const savedState = JSON.stringify({
-              elements: loadedAnnotation.elements,
-              tasks: loadedAnnotation.tasks || [],
-              screenName: loadedAnnotation.screenName,
-            });
-            setLastSavedState(savedState);
           }
         } catch (err) {
           console.error("Failed to auto-load generator:", err);
         }
       }
     }
-  }, [hasUnsavedChanges, generators, image, annotation, dataTypes]);
+
+    // Re-enable auto-save after a delay
+    setTimeout(() => {
+      isLoadingData.current = false;
+    }, 500);
+  }, [generators, image, annotation, dataTypes]);
 
   // Save to generator config folder (annotated.zip + annotation.json)
   const saveToConfig = useCallback(async () => {
@@ -478,15 +393,6 @@ export default function Home() {
         )
       );
 
-      // Mark as saved
-      const savedState = JSON.stringify({
-        elements: annotation.elements,
-        tasks: annotation.tasks,
-        screenName: image.screenName,
-      });
-      setLastSavedState(savedState);
-      setHasUnsavedChanges(false);
-
       setExportStatus("Saved!");
       await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (err) {
@@ -498,69 +404,129 @@ export default function Home() {
     }
   }, [selectedGenerator, image, annotation, dataTypes]);
 
-  // Handle grid row/col changes that also update selected element
-  // Preserves existing row/col positions when adding/removing
+  // Auto-save: whenever elements/tasks change, save after debounce
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isSavingRef = useRef(false);
+
+  // Create stable reference to current state for the save function
+  const stateRef = useRef({
+    selectedGenerator,
+    imageUrl: image.imageUrl,
+    imageSize: image.imageSize,
+    screenName: image.screenName,
+    imagePath: image.imagePath,
+    elements: annotation.elements,
+    tasks: annotation.tasks,
+    dataTypes,
+  });
+
+  // Keep stateRef updated
+  useEffect(() => {
+    stateRef.current = {
+      selectedGenerator,
+      imageUrl: image.imageUrl,
+      imageSize: image.imageSize,
+      screenName: image.screenName,
+      imagePath: image.imagePath,
+      elements: annotation.elements,
+      tasks: annotation.tasks,
+      dataTypes,
+    };
+  });
+
+  // Trigger save when elements or tasks change
+  useEffect(() => {
+    // Skip if no generator selected or no image
+    if (!selectedGenerator || !image.imageUrl || !image.imageSize) {
+      return;
+    }
+
+    // Skip if we're loading data (don't save what we just loaded!)
+    if (isLoadingData.current) {
+      return;
+    }
+
+    // Clear any existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Schedule save
+    saveTimeoutRef.current = setTimeout(async () => {
+      if (isSavingRef.current) return;
+      isSavingRef.current = true;
+      setIsSaving(true);
+
+      const state = stateRef.current;
+
+      try {
+        console.log("[AUTO-SAVE] Starting save...", { elements: state.elements.length, tasks: state.tasks.length });
+
+        const zipBlob = await createExportZip(
+          state.imageUrl!,
+          {
+            screenName: state.screenName,
+            imageSize: state.imageSize!,
+            imagePath: state.imagePath,
+            elements: state.elements,
+            tasks: state.tasks,
+          },
+          () => {}
+        );
+
+        const exportedDataTypes = state.dataTypes.exportJson();
+        const annotationData = JSON.stringify({
+          screenName: state.screenName,
+          imageSize: state.imageSize,
+          imagePath: state.imagePath,
+          elements: state.elements,
+          tasks: state.tasks,
+          ...(Object.keys(exportedDataTypes).length > 0 && { dataTypes: exportedDataTypes }),
+        }, null, 2);
+
+        const formData = new FormData();
+        formData.append("generator", state.selectedGenerator);
+        formData.append("zip", zipBlob, "annotated.zip");
+        formData.append("annotation", annotationData);
+
+        const res = await fetch("/api/generators/save-config", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (res.ok) {
+          setGenerators((prev) =>
+            prev.map((g) =>
+              g.name === state.selectedGenerator ? { ...g, hasAnnotations: true } : g
+            )
+          );
+          console.log("[AUTO-SAVE] Saved successfully");
+        } else {
+          console.error("[AUTO-SAVE] Server error:", res.status);
+        }
+      } catch (err) {
+        console.error("[AUTO-SAVE] Failed:", err);
+      } finally {
+        isSavingRef.current = false;
+        setIsSaving(false);
+      }
+    }, 1000);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [selectedGenerator, image.imageUrl, image.imageSize, annotation.elements, annotation.tasks]);
+
+  // Handle grid row/col changes for new grids (does not affect selected elements)
   const handleGridRowsChange = useCallback((val: number) => {
     tools.setGridRows(val);
-    if (annotation.selectedElementId) {
-      const el = annotation.elements.find((e) => e.id === annotation.selectedElementId);
-      if (el && isGridType(el.type)) {
-        const oldRows = el.rows || 1;
-        const oldHeights = el.rowHeights && el.rowHeights.length === oldRows
-          ? [...el.rowHeights]
-          : Array(oldRows).fill(1 / oldRows);
-
-        let newHeights: number[];
-        if (val > oldRows) {
-          // Adding rows: split last row
-          const addCount = val - oldRows;
-          const lastHeight = oldHeights[oldRows - 1];
-          const splitHeight = lastHeight / (addCount + 1);
-          newHeights = [...oldHeights.slice(0, -1), ...Array(addCount + 1).fill(splitHeight)];
-        } else if (val < oldRows) {
-          // Removing rows: merge into last remaining
-          const removed = oldHeights.slice(val - 1);
-          const removedSum = removed.reduce((a, b) => a + b, 0);
-          newHeights = [...oldHeights.slice(0, val - 1), removedSum];
-        } else {
-          newHeights = oldHeights;
-        }
-
-        annotation.updateElement(annotation.selectedElementId, { rows: val, rowHeights: newHeights });
-      }
-    }
-  }, [tools, annotation]);
+  }, [tools]);
 
   const handleGridColsChange = useCallback((val: number) => {
     tools.setGridCols(val);
-    if (annotation.selectedElementId) {
-      const el = annotation.elements.find((e) => e.id === annotation.selectedElementId);
-      if (el && ["grid", "icon"].includes(el.type)) {
-        const oldCols = el.cols || 1;
-        const oldWidths = el.colWidths && el.colWidths.length === oldCols
-          ? [...el.colWidths]
-          : Array(oldCols).fill(1 / oldCols);
-
-        let newWidths: number[];
-        if (val > oldCols) {
-          // Adding cols: split last col
-          const addCount = val - oldCols;
-          const lastWidth = oldWidths[oldCols - 1];
-          const splitWidth = lastWidth / (addCount + 1);
-          newWidths = [...oldWidths.slice(0, -1), ...Array(addCount + 1).fill(splitWidth)];
-        } else if (val < oldCols) {
-          // Removing cols: merge into last remaining
-          const removed = oldWidths.slice(val - 1);
-          const removedSum = removed.reduce((a, b) => a + b, 0);
-          newWidths = [...oldWidths.slice(0, val - 1), removedSum];
-        } else {
-          newWidths = oldWidths;
-        }
-
-        annotation.updateElement(annotation.selectedElementId, { cols: val, colWidths: newWidths });
-      }
-    }
-  }, [tools, annotation]);
+  }, [tools]);
 
   return (
     <div
@@ -599,16 +565,23 @@ export default function Home() {
         <div className="flex items-center gap-2">
           {/* Generator selector */}
           <div className="flex items-center gap-1">
-            {hasUnsavedChanges && (
-              <span className="text-yellow-400 text-xs" title="Unsaved changes">●</span>
+            {isSaving && (
+              <span className="text-green-400 text-xs" title="Saving...">●</span>
             )}
             <select
               value={selectedGenerator}
-              onChange={(e) => handleGeneratorChange(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value === "__create_new__") {
+                  setShowNewGeneratorModal(true);
+                } else {
+                  handleGeneratorChange(e.target.value);
+                }
+              }}
               disabled={loadingGenerators}
               className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1.5 text-sm min-w-[200px]"
             >
               <option value="">No generator (file only)</option>
+              <option value="__create_new__">+ Create New Generator...</option>
               {generators.map((g) => (
                 <option key={g.name} value={g.name}>
                   {g.name} {g.hasAnnotations ? "●" : ""}
@@ -627,24 +600,6 @@ export default function Home() {
               className="absolute inset-0 opacity-0 cursor-pointer"
             />
           </label>
-
-          {/* Save to config button (disk icon) */}
-          {selectedGenerator && (
-            <button
-              onClick={saveToConfig}
-              disabled={annotation.elements.length === 0 || isExporting || ocrPending || isRunningOcr}
-              className={`p-1.5 rounded ${
-                hasUnsavedChanges
-                  ? "bg-yellow-600 hover:bg-yellow-700"
-                  : "bg-zinc-700 hover:bg-zinc-600"
-              } disabled:bg-zinc-600 disabled:cursor-not-allowed`}
-              title={`Save to ${selectedGenerator}/config/`}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-              </svg>
-            </button>
-          )}
 
           <button
             onClick={runOcr}
@@ -666,23 +621,6 @@ export default function Home() {
             title="Extract data types from images"
           >
             Data Types
-          </button>
-
-          <button
-            onClick={downloadZip}
-            disabled={annotation.elements.length === 0 || isExporting || ocrPending || isRunningOcr}
-            className={`${
-              selectedGenerator
-                ? "bg-purple-600 hover:bg-purple-700"
-                : "bg-green-600 hover:bg-green-700"
-            } disabled:bg-zinc-600 disabled:cursor-not-allowed px-3 py-1.5 rounded text-sm font-medium min-w-[110px]`}
-            title={ocrPending ? "Run OCR first" : selectedGenerator ? `Save to ${selectedGenerator}` : undefined}
-          >
-            {isExporting
-              ? (exportStatus || "Exporting...")
-              : selectedGenerator
-              ? "Save"
-              : "Download ZIP"}
           </button>
         </div>
       </header>
@@ -733,7 +671,7 @@ export default function Home() {
                   <input
                     type="number"
                     min={1}
-                    max={20}
+                    max={50}
                     value={tools.gridCols}
                     onChange={(e) => handleGridColsChange(parseInt(e.target.value) || 1)}
                     className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm"
@@ -927,6 +865,7 @@ export default function Home() {
                 onSelectElement={annotation.selectElement}
                 onUpdateElement={annotation.updateElement}
                 onDeleteElement={annotation.deleteElement}
+                onClearAll={annotation.clearAll}
                 onStartColorSampling={tools.startColorSampling}
                 onUpdateGridTasks={annotation.updateGridTasks}
                 isIconPlacementMode={tools.isIconPlacementMode}
@@ -978,6 +917,16 @@ export default function Home() {
         isOpen={showDataTypesModal}
         onClose={() => setShowDataTypesModal(false)}
         dataTypes={dataTypes}
+      />
+
+      {/* New Generator Modal */}
+      <NewGeneratorModal
+        isOpen={showNewGeneratorModal}
+        onClose={() => setShowNewGeneratorModal(false)}
+        onCreated={async (name) => {
+          await fetchGenerators();
+          setSelectedGenerator(name);
+        }}
       />
     </div>
   );

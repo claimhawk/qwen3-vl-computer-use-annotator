@@ -45,8 +45,22 @@ export async function POST(request: NextRequest) {
     await fs.writeFile(zipPath, zipBuffer);
 
     // Save annotation.json to config folder
-    const jsonPath = path.join(configPath, "annotation.json");
-    await fs.writeFile(jsonPath, annotationJson, "utf-8");
+    const configJsonPath = path.join(configPath, "annotation.json");
+    await fs.writeFile(configJsonPath, annotationJson, "utf-8");
+
+    // ALSO save to assets/annotations/annotation.json (this is where load reads from first!)
+    const assetsAnnotationsPath = path.join(generatorPath, "assets", "annotations");
+    try {
+      await fs.access(assetsAnnotationsPath);
+      const assetsJsonPath = path.join(assetsAnnotationsPath, "annotation.json");
+      await fs.writeFile(assetsJsonPath, annotationJson, "utf-8");
+      console.log("[SAVE-CONFIG] Wrote to assets/annotations/annotation.json");
+    } catch {
+      // assets/annotations folder doesn't exist, that's fine
+    }
+
+    const parsed = JSON.parse(annotationJson);
+    console.log("[SAVE-CONFIG] Saved", parsed.elements?.length, "elements,", parsed.tasks?.length, "tasks");
 
     return NextResponse.json({
       success: true,

@@ -35,6 +35,7 @@ function generateScrollTasks(element: UIElement, elementName?: string): Task[] {
     {
       id: `${element.id}${SCROLL_TASK_PREFIX}top`,
       prompt: `Scroll to the top of the ${name}`,
+      taskType: "scroll-top",
       targetElementId: element.id,
       action: "scroll" as TaskAction,
       pixels: -9999,
@@ -42,6 +43,7 @@ function generateScrollTasks(element: UIElement, elementName?: string): Task[] {
     {
       id: `${element.id}${SCROLL_TASK_PREFIX}bottom`,
       prompt: `Scroll to the bottom of the ${name}`,
+      taskType: "scroll-bottom",
       targetElementId: element.id,
       action: "scroll" as TaskAction,
       pixels: 9999,
@@ -49,6 +51,7 @@ function generateScrollTasks(element: UIElement, elementName?: string): Task[] {
     {
       id: `${element.id}${SCROLL_TASK_PREFIX}up`,
       prompt: `Scroll up on the ${name}`,
+      taskType: "scroll-up",
       targetElementId: element.id,
       action: "scroll" as TaskAction,
       pixels: -Math.round(element.bbox.height),
@@ -56,6 +59,7 @@ function generateScrollTasks(element: UIElement, elementName?: string): Task[] {
     {
       id: `${element.id}${SCROLL_TASK_PREFIX}down`,
       prompt: `Scroll down on the ${name}`,
+      taskType: "scroll-down",
       targetElementId: element.id,
       action: "scroll" as TaskAction,
       pixels: Math.round(element.bbox.height),

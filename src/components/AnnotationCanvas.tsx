@@ -733,7 +733,7 @@ export default function AnnotationCanvas({
           : Array(cols).fill(1 / cols);
 
         // Calculate new position as fraction
-        const newPosX = Math.max(x + 10, Math.min(pos.x, x + width - 10));
+        const newPosX = Math.max(x + 4, Math.min(pos.x, x + width - 4));
         const newFraction = (newPosX - x) / width;
 
         // Get cumulative widths up to this divider
@@ -744,7 +744,7 @@ export default function AnnotationCanvas({
 
         // The divider is between index and index+1
         // Adjust so divider position = cumBefore + currentWidths[index]
-        const minWidth = 10 / width; // minimum 10px
+        const minWidth = 4 / width; // minimum 4px
         const leftCol = draggingDivider.index;
         const rightCol = draggingDivider.index + 1;
 
@@ -773,7 +773,7 @@ export default function AnnotationCanvas({
           : Array(rows).fill(1 / rows);
 
         // Calculate new position as fraction
-        const newPosY = Math.max(y + 10, Math.min(pos.y, y + height - 10));
+        const newPosY = Math.max(y + 4, Math.min(pos.y, y + height - 4));
         const newFraction = (newPosY - y) / height;
 
         // Get cumulative heights up to this divider
@@ -782,7 +782,7 @@ export default function AnnotationCanvas({
           cumBefore += currentHeights[i];
         }
 
-        const minHeight = 10 / height;
+        const minHeight = 4 / height;
         const topRow = draggingDivider.index;
         const bottomRow = draggingDivider.index + 1;
 
