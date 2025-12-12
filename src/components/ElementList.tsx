@@ -909,6 +909,39 @@ export default function ElementList({
                     />
                     <span className="text-xs text-zinc-300">Selectable (Cell)</span>
                   </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedElement.firstRowHeader ?? false}
+                      onChange={(e) =>
+                        onUpdateElement(selectedElement.id, { firstRowHeader: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-zinc-300">First Row is Header</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedElement.lastColScroll ?? false}
+                      onChange={(e) =>
+                        onUpdateElement(selectedElement.id, { lastColScroll: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-zinc-300">Last Column is Scroll</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedElement.lastRowScroll ?? false}
+                      onChange={(e) =>
+                        onUpdateElement(selectedElement.id, { lastRowScroll: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-zinc-300">Last Row is Scroll</span>
+                  </label>
                 </div>
                 {(selectedElement.selectableRow || selectedElement.selectableCell) && (
                   <div className="mt-2">
